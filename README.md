@@ -1,6 +1,8 @@
-# OpenTool Daemon HTTP API 文档
+# OpenTool Daemon HTTP API Documentation
 
-`OpenTool Daemon` 提供用于管理 OpenTool Server 的本地常驻守护进程服务。该服务监听本地端口，提供 HTTP 接口以供 CLI 或其他前端程序调用。
+English | [中文](README-zh_CN.md)
+
+`OpenTool Daemon` provides a local persistent service for managing OpenTool Server instances. It listens on a local port and exposes HTTP endpoints for CLI or other frontend applications.
 
 ---
 
@@ -22,39 +24,39 @@ dart compile exe bin/opentool_daemon.dart -o build/opentoold
 
 ---
 
-## 启动
+## Launch
 
 ```bash
-./opentool-daemon
+./opentoold
 ```
 
-默认监听 `http://127.0.0.1:19627`
+By default, it listens on `http://127.0.0.1:19627`
 
 ---
 
-## 接口总览
+## API Overview
 
-| 方法   | 路径          | 描述                         |
-|------|-------------|----------------------------|
-| GET  | `/version`  | 版本号获取，也用于检查守护进程是否运行        |
-| POST | `/register` | 注册一个新的 OpenTool Server实例   |
-| GET  | `/list`     | 获取已注册实例列表                  |
-| POST | `/call`     | 转发调用请求给指定实例                |
-| POST | `/load`     | 返回对用OpenTool Server的JSON描述 |
-| POST | `/stop`     | 关闭OpenTool Server          |
-| POST | `/remove`   | 删除OpenTool Server实例        |
+| Method | Path        | Description                                    |
+|--------|-------------|------------------------------------------------|
+| GET    | `/version`  | Get version and check if the daemon is running |
+| POST   | `/register` | Register a new OpenTool Server instance        |
+| GET    | `/list`     | Retrieve the list of registered instances      |
+| POST   | `/call`     | Forward a call request to the target instance  |
+| POST   | `/load`     | Get the OpenTool Server JSON description       |
+| POST   | `/stop`     | Stop an OpenTool Server instance               |
+| POST   | `/remove`   | Remove an OpenTool Server instance             |
 
 ---
 
-## 1. 版本检查
+## 1. Version Check
 
-**请求**
+**Request**
 
 ```http
 GET /version
 ```
 
-**响应**
+**Response**
 
 ```json
 {
@@ -64,9 +66,9 @@ GET /version
 
 ---
 
-## 2. 注册 Server 实例
+## 2. Register a Server Instance
 
-**请求**
+**Request**
 
 ```http
 POST /register
@@ -81,12 +83,12 @@ Content-Type: application/json
   "host": "0.0.0.0",
   "port": 9628,
   "prefix": "/opentool",
-  "apiKeys": ["123","456"],
+  "apiKeys": ["123", "456"],
   "pid": 12345
 }
 ```
 
-**响应**
+**Response**
 
 ```json
 {
@@ -96,15 +98,15 @@ Content-Type: application/json
 
 ---
 
-## 3. 获取所有 Server 实例
+## 3. Get All Server Instances
 
-**请求**
+**Request**
 
 ```http
 GET /list
 ```
 
-**响应**
+**Response**
 
 ```json
 {
@@ -122,9 +124,9 @@ GET /list
 
 ---
 
-## 4. 转发调用
+## 4. Forward a Tool Call
 
-**请求**
+**Request**
 
 ```http
 POST /call
@@ -144,7 +146,7 @@ Content-Type: application/json
 }
 ```
 
-**响应**
+**Response**
 
 ```json
 {
@@ -157,9 +159,9 @@ Content-Type: application/json
 
 ---
 
-## 5. 获取完整的OpenTool JSON描述
+## 5. Load OpenTool JSON Description
 
-**请求**
+**Request**
 
 ```http
 POST /load
@@ -174,13 +176,15 @@ Content-Type: application/json
 }
 ```
 
-**响应**
+**Response**
 
-- 详见Opentool Specification文档结构
+* Follows the OpenTool Specification JSON structure.
 
-## 6. 关闭OpenTool Server
+---
 
-**请求**
+## 6. Stop an OpenTool Server
+
+**Request**
 
 ```http
 POST /stop
@@ -195,18 +199,20 @@ Content-Type: application/json
 }
 ```
 
-**响应**
+**Response**
 
 ```json
 {
-  "id": "<Server ID",
+  "id": "<Server ID>",
   "status": "stopSuccess"
 }
 ```
 
-## 6. 删除 OpenTool Server 实例
+---
 
-**请求**
+## 7. Remove an OpenTool Server Instance
+
+**Request**
 
 ```http
 POST /remove
@@ -221,11 +227,11 @@ Content-Type: application/json
 }
 ```
 
-**响应**
+**Response**
 
 ```json
 {
-  "id": "<Server ID",
+  "id": "<Server ID>",
   "status": "removeSuccess"
 }
 ```
