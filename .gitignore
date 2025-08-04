@@ -1,0 +1,7 @@
+.dart_tool/
+.idea/
+.opentool_data/
+
+pubspec.lock
+*.iml
+DS_Store
