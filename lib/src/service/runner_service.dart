@@ -44,7 +44,7 @@ class RunnerService {
       isSSL: false,
       host: serverModel.host,
       port: serverModel.port,
-      apiKey: serverModel.apiKeys != null? serverModel.apiKeys!.first : null,
+      apiKey: (serverModel.apiKeys != null && serverModel.apiKeys!.isNotEmpty)? serverModel.apiKeys!.first : null,
     );
   }
 
