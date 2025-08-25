@@ -138,7 +138,7 @@ Content-Type: application/json
 ```json
 {
   "id": "<Server ID>",
-  "call": {
+  "functionCall": {
     "id": "call-001",
     "name": "getStatus",
     "arguments": {}

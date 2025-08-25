@@ -26,8 +26,8 @@ class DaemonServer {
     final hiveStorage = HiveStorage();
     await hiveStorage.init();
 
-    final manager = ManageService(storage: hiveStorage); // 注入持久化存储
-    final runner = RunnerService(manager: manager); // 创建 ServerRunner 实例
+    final manager = ManageService(storage: hiveStorage);
+    final runner = RunnerService(manager: manager);
     await runner.startCheckPeriodic(Duration(minutes: 1));
 
     Controller controller = Controller(manageService: manager, runnerService: runner, version: version);

@@ -43,8 +43,12 @@ class DaemonClient {
     return StatusDto.fromJson(response.data);
   }
 
-  Future<ToolReturnDto> call(ServerFunctionCallDto functonCallDto) async {
-    Response response = await dio.post('/call', data: jsonEncode(functonCallDto.toJson()),);
+  Future<ToolReturnDto> call(ServerFunctionCallDto functionCallDto) async {
+    Response response = await dio.post('/call', data: jsonEncode(functionCallDto.toJson()),);
+    Map<String, dynamic> responseData = response.data;
+    if(responseData.containsKey('error')) {
+      return ToolReturnDto( id: functionCallDto.id, result: responseData);
+    }
     return ToolReturnDto.fromJson(response.data);
   }
 

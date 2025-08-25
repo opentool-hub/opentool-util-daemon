@@ -89,6 +89,8 @@ class Controller {
       ToolReturn toolReturn = await runnerService.call(functionCallDto.id, functionCallDto.functionCall.toModel());
 
       return Response.ok(jsonEncode(ToolReturnDto.fromModel(toolReturn).toJson()), headers: jsonHeaders,);
+    } on OpenToolServerNoAccessException catch(e) {
+      return Response.ok(jsonEncode(e.toJson()), headers: jsonHeaders,);
     } on FormatException catch (_) {
       return Response.badRequest(body: data);
     } catch(e) {
