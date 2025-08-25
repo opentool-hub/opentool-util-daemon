@@ -3,13 +3,13 @@ import 'package:logging/logging.dart';
 
 enum LogModule { http }
 
-AgentLogger logger = AgentLogger(Level.INFO);
+DaemonLogger logger = DaemonLogger(Level.INFO);
 
-class AgentLogger {
-  static final AgentLogger _singleton = AgentLogger._internal();
+class DaemonLogger {
+  static final DaemonLogger _singleton = DaemonLogger._internal();
   static Level _level = Level.INFO;
 
-  factory AgentLogger(Level level) {
+  factory DaemonLogger(Level level) {
     _level = level;
     return _singleton;
   }
@@ -17,7 +17,7 @@ class AgentLogger {
   Logger? _logger;
   late File _logFile;
 
-  AgentLogger._internal() {
+  DaemonLogger._internal() {
     _logger = Logger('OpenToolDaemonLogger');
     Logger.root.level = _level;
     _logFile = File('${Directory.current.path}${Platform.pathSeparator}log${Platform.pathSeparator}daemon.log');
