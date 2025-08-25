@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../storage/dao.dart';
 
 class StatusType {
@@ -51,7 +53,7 @@ class OpenToolServerModel {
       id: id,
       name: name,
       file: file,
-      host: host,
+      host: host == InternetAddress.anyIPv4.host? InternetAddress.loopbackIPv4.host : host,
       port: port,
       prefix: prefix,
       apiKeys: apiKeys,

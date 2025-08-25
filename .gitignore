@@ -1,6 +1,7 @@
 .dart_tool/
 .idea/
 .opentool_data/
+log/
 
 pubspec.lock
 *.iml
