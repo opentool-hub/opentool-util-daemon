@@ -19,7 +19,7 @@ class DaemonServer {
   DaemonServer({required this.version});
 
   Future<void> start() async {
-    String ip = "127.0.0.1";
+    String ip = InternetAddress.loopbackIPv4.host;
     int port = DAEMON_DEFAULT_PORT;
     String prefix = DAEMON_DEFAULT_PREFIX;
 
