@@ -109,17 +109,15 @@ GET /list
 **响应**
 
 ```json
-{
-  "code": 0,
-  "data": [
-    {
-      "id": "abc123",
-      "name": "My OpenTool Server",
-      "cmd": "opentool serve --port 2080",
-      "pid": 12345
-    }
-  ]
-}
+[
+  {
+    "id": "<Server ID>",
+    "name": "My OpenTool Server",
+    "file": "/path/to/opentool-server",
+    "port": "8765",
+    "pid": 12345
+  }
+]
 ```
 
 ---
