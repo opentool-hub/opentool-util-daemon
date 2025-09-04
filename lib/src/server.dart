@@ -15,6 +15,8 @@ class DaemonServer {
 
   late HttpServer server;
   String version;
+  ManageService? manageService;
+  RunnerService? runnerService;
 
   DaemonServer({required this.version});
 
@@ -26,11 +28,11 @@ class DaemonServer {
     final hiveStorage = HiveStorage();
     await hiveStorage.init();
 
-    final manager = ManageService(storage: hiveStorage);
-    final runner = RunnerService(manager: manager);
-    await runner.startCheckPeriodic(Duration(minutes: 1));
+    manageService = ManageService(storage: hiveStorage);
+    runnerService = RunnerService(manager: manageService!);
+    await runnerService!.startCheckPeriodic(Duration(minutes: 1));
 
-    Controller controller = Controller(manageService: manager, runnerService: runner, version: version);
+    Controller controller = Controller(manageService: manageService!, runnerService: runnerService!, version: version);
 
     daemonRoutes(controller);
 
