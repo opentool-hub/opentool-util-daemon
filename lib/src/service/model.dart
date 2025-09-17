@@ -2,7 +2,7 @@ import 'dart:io';
 
 import '../storage/dao.dart';
 
-class StatusType {
+class ServerStatusType {
   static const String START_SUCCESS = 'startSuccess';
   static const String START_FAILED = 'startFailed';
   static const String RENAME_SUCCESS = 'renameSuccess';

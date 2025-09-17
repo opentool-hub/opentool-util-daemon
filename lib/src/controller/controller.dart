@@ -73,7 +73,7 @@ class Controller {
       RenameDto renameDto = RenameDto.fromJson(data);
       logger.log(LogModule.http, "rename", detail: jsonEncode(renameDto.toJson()));
       await manageService.rename(renameDto.id, renameDto.name);
-      StatusDto statusDto = StatusDto(id: renameDto.id, status: StatusType.RENAME_SUCCESS);
+      StatusDto statusDto = StatusDto(id: renameDto.id, status: ServerStatusType.RENAME_SUCCESS);
       logger.log(LogModule.http, "renameResult", detail: jsonEncode(statusDto.toJson()));
       return Response.ok(jsonEncode(statusDto.toJson()), headers: jsonHeaders,);
     } on FormatException catch (_) {
@@ -128,7 +128,7 @@ class Controller {
       logger.log(LogModule.http, "stop", detail: jsonEncode(serverIdDto.toJson()));
       String serverId = serverIdDto.id;
       await runnerService.stop(serverId);
-      StatusDto statusDto = StatusDto(id: serverId, status: StatusType.STOP_SUCCESS);
+      StatusDto statusDto = StatusDto(id: serverId, status: ServerStatusType.STOP_SUCCESS);
       logger.log(LogModule.http, "stopResult", detail: jsonEncode(statusDto.toJson()));
       return Response.ok(jsonEncode(statusDto.toJson()), headers: jsonHeaders);
     } on FormatException catch (_) {
@@ -147,7 +147,7 @@ class Controller {
       logger.log(LogModule.http, "remove", detail: jsonEncode(serverIdDto.toJson()));
       String serverId = serverIdDto.id;
       await manageService.remove(serverId);
-      StatusDto statusDto = StatusDto(id: serverId, status: StatusType.REMOVE_SUCCESS);
+      StatusDto statusDto = StatusDto(id: serverId, status: ServerStatusType.REMOVE_SUCCESS);
       logger.log(LogModule.http, "removeResult", detail: jsonEncode(statusDto.toJson()));
       return Response.ok(jsonEncode(statusDto.toJson()), headers: jsonHeaders);
     } on FormatException catch (_) {
