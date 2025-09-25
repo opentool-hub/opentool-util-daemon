@@ -65,9 +65,9 @@ class RunnerService {
         print("Stream call toolReturn: ${toolReturn.result}");
         if (event == EventType.DATA) {
           accumulatedData.addAll(toolReturn.result);
-        } else if (event == EventType.ERROR) {
+        } else if (event == EventType.ERROR && !completer.isCompleted) {
           completer.completeError(Exception('Stream call error: ${toolReturn.result}'));
-        } else if (event == EventType.DONE) {
+        } else if (event == EventType.DONE && !completer.isCompleted) {
           completer.complete(ToolReturn(id: functionCall.id, result: accumulatedData));
         }
       });
