@@ -1,23 +1,23 @@
 import 'dao.dart';
 import 'storage.dart';
 
-class InMemoryStorage implements Storage {
-  final List<OpenToolServerDao> _storage = [];
+class InMemoryServerStorage implements Storage<ServerDao> {
+  final List<ServerDao> _storage = [];
 
-  Future<void> add(OpenToolServerDao server) async {
+  Future<void> add(ServerDao server) async {
     _storage.add(server);
   }
 
-  Future<void> update(OpenToolServerDao server) async {
+  Future<void> update(ServerDao server) async {
     int index = _storage.indexWhere((s) => s.id == server.id);
     if (index != -1) {
       _storage[index] = server;
     }
   }
 
-  Future<OpenToolServerDao?> remove(String id) async {
+  Future<ServerDao?> remove(String id) async {
     try {
-      OpenToolServerDao? serverDao = _storage.firstWhere((s) => s.id == id);
+      ServerDao? serverDao = _storage.firstWhere((s) => s.id == id);
        _storage.removeWhere((s) => s.id == id);
        return serverDao;
     } catch (e) {
@@ -25,7 +25,7 @@ class InMemoryStorage implements Storage {
     }
   }
 
-  Future<OpenToolServerDao?> get(String id) async {
+  Future<ServerDao?> get(String id) async {
     try {
       return _storage.firstWhere((s) => s.id == id);
     } catch (e) {
@@ -34,7 +34,45 @@ class InMemoryStorage implements Storage {
   }
 
   @override
-  Future<List<OpenToolServerDao>> list() async {
+  Future<List<ServerDao>> list() async {
+    return _storage;
+  }
+}
+
+class InMemoryToolStorage implements Storage<ToolDao> {
+  final List<ToolDao> _storage = [];
+
+  Future<void> add(ToolDao toolDao) async {
+    _storage.add(toolDao);
+  }
+
+  Future<void> update(ToolDao toolDao) async {
+    int index = _storage.indexWhere((s) => s.id == toolDao.id);
+    if (index != -1) {
+      _storage[index] = toolDao;
+    }
+  }
+
+  Future<ToolDao?> remove(String id) async {
+    try {
+      ToolDao? toolDao = _storage.firstWhere((s) => s.id == id);
+      _storage.removeWhere((s) => s.id == id);
+      return toolDao;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<ToolDao?> get(String id) async {
+    try {
+      return _storage.firstWhere((s) => s.id == id);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  @override
+  Future<List<ToolDao>> list() async {
     return _storage;
   }
 }

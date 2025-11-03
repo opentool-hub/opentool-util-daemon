@@ -52,8 +52,36 @@ opentool build -t mock_tool:1.0.0
         "cpuArch": "arm64"
     }
     ```
-4. 把了一份`{WORKDIR}`文件夹、`metadata.json`、`Opentoolfile`，复制到OpenTool的系统目录中 `~/.opentool/servers/{repo}/{name}/{tag}/`，例如：`~/.opentool/servers/native/mock_tool/1.0.0/`
-5. 更多：
+4. 创建一份`OpentoolConfig`，内容如下：
+    ```json
+    {
+      "build": {
+        "args": {
+          "DEFAULT_LOG": "info",
+          "DEFAULT_PORT": "9628"
+        },
+        "run": [
+           "dart pub get",
+           "dart compile exe bin/mock_tool.dart -o build/mock_tool",
+           "cp mock-tool.json build/mock-tool.json"
+        ]
+      },
+      "run": {
+        "envs": {
+          "LOG_LEVEL": "$DEFAULT_LOG",
+          "PORT": "$DEFAULT_PORT"
+        },
+        "workdir": "./build",
+        "entrypoint": "mock_tool",
+        "cmds": [
+          "--log $LOG_LEVEL", 
+          "--port $PORT" 
+        ]
+      }
+    }
+    ```
+5. 把了一份`{WORKDIR}`文件夹、`metadata.json`、`Opentoolfile`，复制到OpenTool的系统目录中 `~/.opentool/servers/{repo}/{name}/{tag}/`，例如：`~/.opentool/servers/native/mock_tool/1.0.0/`
+6. 更多：
   - 如果不写{tag}, 则默认为`latest`
   - 如果tag与现有的重复，则直接覆盖
   - 如果没有登录opentool-hub，则`{repo}`为`<none>`
@@ -76,7 +104,7 @@ opentool run mock_tool:1.0.0
     ```
     --toolHost: 用于指定host，控制网络可访问的范围
     --toolPort: 用于指定port，确保端口与其他OpenTool Server的端口不冲突
-    --apiKeys: 用于指定apiKeys，确保该Tool的安全访问
+    --toolApiKeys: 用于指定apiKeys，确保该Tool的安全访问
     ```
 
 ## 导出

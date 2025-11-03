@@ -1,63 +1,122 @@
-import 'dart:io';
-
 import '../storage/dao.dart';
 
-class ServerStatusType {
-  static const String START_SUCCESS = 'startSuccess';
-  static const String START_FAILED = 'startFailed';
-  static const String RENAME_SUCCESS = 'renameSuccess';
+class ToolStatusType {
   static const String RUNNING = 'running';
-  static const String STOP_SUCCESS = 'stopSuccess';
   static const String NOT_RUNNING = 'notRunning';
-  static const String PID_NOT_EXIST = 'pidNotExist';
-  static const String SERVER_NOT_EXIST = 'serverNotExist';
-  static const String REMOVE_SUCCESS = 'removeSuccess';
 }
 
-class OpenToolServerModel {
-  String id;
+class VersionModel {
   String name;
-  String file;
-  String host;
-  int port;
-  String prefix;
-  List<String>? apiKeys;
-  int? pid;
+  String version;
 
-  OpenToolServerModel({
-    required this.id,
+  VersionModel({
     required this.name,
-    required this.file,
-    required this.host,
-    required this.port,
-    required this.prefix,
-    this.apiKeys,
-    this.pid,
+    required this.version,
+  });
+}
+
+class LoginInfoModel {
+  final String registry;
+  final String username;
+  final String password;
+
+  LoginInfoModel({
+    required this.registry,
+    required this.username,
+    required this.password,
+  });
+}
+
+class UserInfo {
+  String? registry;
+  String? username;
+
+  UserInfo({
+    this.registry,
+    this.username,
+  });
+}
+
+class ServerModel {
+  String id;
+  String alias;
+  String registry ;
+  String repo;
+  String name;
+  String tag;
+  String internalId;
+
+  ServerModel({
+    required this.id,
+    required this.alias,
+    required this.registry,
+    required this.repo,
+    required this.name,
+    required this.tag,
+    required this.internalId,
   });
 
-  factory OpenToolServerModel.fromDao(OpenToolServerDao dao) {
-    return OpenToolServerModel(
+  factory ServerModel.fromDao(ServerDao dao) {
+    return ServerModel(
       id: dao.id,
+      alias: dao.alias,
+      registry: dao.registry,
+      repo: dao.repo,
       name: dao.name,
-      file: dao.file,
-      host: dao.host,
-      port: dao.port,
-      prefix: dao.prefix,
-      apiKeys: dao.apiKeys,
-      pid: dao.pid,
+      tag: dao.tag,
+      internalId: dao.internalId
     );
   }
 
-  OpenToolServerDao toDao() {
-    return OpenToolServerDao(
+  ServerDao toDao() {
+    return ServerDao(
+        id: id,
+        alias: alias,
+        registry: registry,
+        repo: repo,
+        name: name,
+        tag: tag,
+        internalId: internalId
+    );
+  }
+}
+
+class ToolModel {
+  String id;
+  String alias;
+  String host ;
+  int port;
+  String apiKey;
+  String status;
+
+  ToolModel({
+    required this.id,
+    required this.alias,
+    required this.host,
+    required this.port,
+    required this.apiKey,
+    required this.status,
+  });
+
+  factory ToolModel.fromDao(ToolDao dao) {
+    return ToolModel(
+      id: dao.id,
+      alias: dao.alias,
+      host: dao.host,
+      port: dao.port,
+      apiKey: dao.apiKey,
+      status: dao.status,
+    );
+  }
+
+  ToolDao toDao() {
+    return ToolDao(
       id: id,
-      name: name,
-      file: file,
-      host: host == InternetAddress.anyIPv4.host? InternetAddress.loopbackIPv4.host : host,
+      alias: alias,
+      host: host,
       port: port,
-      prefix: prefix,
-      apiKeys: apiKeys,
-      pid: pid,
+      apiKey: apiKey,
+      status: status,
     );
   }
 }

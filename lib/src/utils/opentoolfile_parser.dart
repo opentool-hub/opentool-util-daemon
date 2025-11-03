@@ -16,6 +16,7 @@ class Instruction {
 
   Instruction(this.name, this.args, this.line, {this.blockComment, this.inlineComment});
 }
+
 /// Represents the runtime context used for variable expansion.
 class ExecutionContext {
   final Map<String, String> args = {};
@@ -56,48 +57,40 @@ class OpentoolfileParser {
   // Public getters (high-level access)
   // ---------------------------------------------------------------------------
 
-  /// Get ARG definitions.
   Map<String, String> getArgs() => Map.unmodifiable(context.args);
-
-  /// Get ENV definitions (with ARG-expanded values).
   Map<String, String> getEnvs() => Map.unmodifiable(context.envs);
 
-  /// Get all RUN commands (expanded).
   List<String> getRun() {
     return _instructions
         .where((i) => i.name == InstructNameType.RUN)
-        .map((i) => context.expand(i.args.join(' ')))
+        .map((i) => i.args.join(' '))
         .toList();
   }
 
-  /// Get WORKDIR (expanded).
   String? getWorkdir() {
     final instr = _instructions.lastWhere(
           (i) => i.name == InstructNameType.WORKDIR,
       orElse: () => Instruction('NONE', [], 0),
     );
-    return instr.args.isNotEmpty ? context.expand(instr.args.join(' ')) : null;
+    return instr.args.isNotEmpty ? instr.args.join(' ') : null;
   }
 
-  /// Get ENTRYPOINT (expanded).
   String? getEntrypoint() {
     final instr = _instructions.lastWhere(
           (i) => i.name == InstructNameType.ENTRYPOINT,
       orElse: () => Instruction('NONE', [], 0),
     );
-    return instr.args.isNotEmpty ? context.expand(instr.args.first) : null;
+    return instr.args.isNotEmpty ? instr.args.first : null;
   }
 
-  /// Get CMD arguments (expanded).
   List<String> getCmd() {
     final instr = _instructions.lastWhere(
           (i) => i.name == InstructNameType.CMD,
       orElse: () => Instruction('NONE', [], 0),
     );
-    return instr.args.map(context.expand).toList();
+    return instr.args;
   }
 
-  /// Get final command = ENTRYPOINT + CMD (expanded).
   List<String> getFinalCommand() {
     final entry = getEntrypoint();
     final cmd = getCmd();
@@ -108,7 +101,6 @@ class OpentoolfileParser {
   // Internal parsing and interpretation
   // ---------------------------------------------------------------------------
 
-  /// Parse raw text into a flat list of instructions.
   List<Instruction> _parse(String source) {
     final lines = source.split('\n');
     final result = <Instruction>[];
@@ -121,15 +113,12 @@ class OpentoolfileParser {
 
       String? inlineComment;
 
-      // Handle comments
       if (line.contains('#')) {
         final idx = line.indexOf('#');
         if (idx == 0) {
-          // full-line comment -> treat as block comment
           lastBlockComment = line.substring(1).trim();
           continue;
         } else {
-          // inline comment
           inlineComment = line.substring(idx + 1).trim();
           line = line.substring(0, idx).trim();
         }
@@ -137,7 +126,6 @@ class OpentoolfileParser {
 
       if (line.isEmpty) continue;
 
-      // Split into command + args
       final parts = _splitArgs(line);
       final name = parts.first.toUpperCase();
       final args = parts.skip(1).toList();
@@ -156,7 +144,6 @@ class OpentoolfileParser {
     return result;
   }
 
-  /// Simulate execution to build the runtime context.
   void _interpret() {
     for (final instr in _instructions) {
       switch (instr.name) {
@@ -173,34 +160,31 @@ class OpentoolfileParser {
           for (var arg in instr.args) {
             final parts = arg.split('=');
             if (parts.length == 2) {
-              context.envs[parts[0]] = context.expand(parts[1]);
+              context.envs[parts[0]] = parts[1];
             }
           }
           break;
 
         case InstructNameType.WORKDIR:
-          context.workdir = context.expand(instr.args.join(' '));
+          context.workdir = instr.args.join(' ');
           break;
 
         case InstructNameType.ENTRYPOINT:
           if (instr.args.isNotEmpty) {
-            context.entrypoint = context.expand(instr.args.first);
+            context.entrypoint = instr.args.first;
           }
           break;
 
         case InstructNameType.CMD:
-          context.cmd = instr.args.map(context.expand).toList();
+          context.cmd = instr.args.toList();
           break;
 
         default:
-        // RUN and other instructions do not affect context.
           break;
       }
     }
   }
 
-  /// Split instruction arguments.
-  /// Supports both space-delimited and JSON-array-like syntax.
   List<String> _splitArgs(String line) {
     final jsonArray = RegExp(r'^\w+\s+\[.*\]$');
     if (jsonArray.hasMatch(line)) {
