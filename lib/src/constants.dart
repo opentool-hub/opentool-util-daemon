@@ -5,7 +5,8 @@ final Map<String, String> JSON_HEADERS = {HttpHeaders.contentTypeHeader: 'applic
 final Map<String, String> STREAM_HEADERS = {HttpHeaders.contentTypeHeader: 'text/event-stream', HttpHeaders.cacheControlHeader: 'no-cache', HttpHeaders.connectionHeader: 'keep-alive', 'Cache-Control': 'no-store',};
 
 const String DEFAULT_REGISTRY = "https://api.opentool-hub.com";
-String OPENTOOL_PATH = "${DirectoryUtil.getUserHomeDir()}${Platform.pathSeparator}.opentool";
+const String OPENTOOL_FOLDER = ".opentool";
+String OPENTOOL_PATH = "${DirectoryUtil.getBaseDir()}${Platform.pathSeparator}${OPENTOOL_FOLDER}";
 
 const String SERVER_FOLDER = 'servers';
 const String TOOL_FOLDER = 'tools';

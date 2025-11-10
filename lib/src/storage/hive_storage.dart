@@ -1,19 +1,22 @@
 import 'dart:io';
 import 'package:hive/hive.dart';
+import 'package:opentool_daemon/src/utils/directory_util.dart';
 import 'package:path/path.dart' as p;
 import 'dao.dart';
 import 'storage.dart';
 
+String DB_PATH = '.opentool${Platform.pathSeparator}db';
+
 class HiveInternalServerStorage implements Storage<InternalServerDao> {
-  static const String _boxName = 'servers';
+  static const String _boxName = 'internal_servers';
 
   late Box<InternalServerDao> _box;
 
   Future<void> init() async {
-    Hive.registerAdapter(ServerDaoAdapter());
+    Hive.registerAdapter(InternalServerDaoAdapter());
 
-    final dir = Directory.current.path;
-    final hivePath = p.join(dir, '.opentool_data');
+    final dir = DirectoryUtil.getBaseDir();
+    final hivePath = p.join(dir, DB_PATH);
     await Directory(hivePath).create(recursive: true);
 
     Hive.init(hivePath);
@@ -49,15 +52,15 @@ class HiveInternalServerStorage implements Storage<InternalServerDao> {
 }
 
 class HiveServerStorage implements Storage<ServerDao> {
-  static const String _boxName = 'tags';
+  static const String _boxName = 'servers';
 
   late Box<ServerDao> _box;
 
   Future<void> init() async {
     Hive.registerAdapter(ServerDaoAdapter());
 
-    final dir = Directory.current.path;
-    final hivePath = p.join(dir, '.opentool_data');
+    final dir = DirectoryUtil.getBaseDir();
+    final hivePath = p.join(dir, DB_PATH);
     await Directory(hivePath).create(recursive: true);
 
     Hive.init(hivePath);
@@ -100,8 +103,8 @@ class HiveToolStorage implements Storage<ToolDao> {
   Future<void> init() async {
     Hive.registerAdapter(ToolDaoAdapter());
 
-    final dir = Directory.current.path;
-    final hivePath = p.join(dir, '.opentool_data');
+    final dir = DirectoryUtil.getBaseDir();
+    final hivePath = p.join(dir, DB_PATH);
     await Directory(hivePath).create(recursive: true);
 
     Hive.init(hivePath);

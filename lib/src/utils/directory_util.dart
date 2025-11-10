@@ -30,6 +30,23 @@ class FileNotFoundException implements Exception {
 }
 
 class DirectoryUtil {
+
+  static String getBaseDir() {
+    // Debug mode check using assert
+    String? debugDir;
+
+    assert(() {
+      debugDir = Directory.current.path;
+      return true;
+    }());
+
+    // Debug return project directory
+    if (debugDir != null) return debugDir!;
+
+    // Release return user home directory
+    return getUserHomeDir();
+  }
+
   static String getUserHomeDir() {
     // macOS / Linux
     if (Platform.isMacOS || Platform.isLinux) {

@@ -17,13 +17,13 @@ void manageRoutes(ManageController manageController) {
 
 /// /opentool-daemon/servers
 void serverRoutes(ServerController serverController) {
-  serverRouter.get('/servers/list', serverController.listServers);
-  serverRouter.post('/servers/build', serverController.buildServer);
-  serverRouter.delete('/servers/{server_id}', serverController.deleteServer);
-  serverRouter.post('/servers/{server_id}/tag', serverController.tagServer);
-  serverRouter.post('/servers/{server_id}/push', serverController.pushServer);
-  serverRouter.get('/servers/{serverId}/export', serverController.exportServer);
-  serverRouter.post('/servers/import', serverController.importServer);
+  serverRouter.get('/list', serverController.listServers);
+  serverRouter.post('/build', serverController.buildServer);
+  serverRouter.delete('/{server_id}', serverController.deleteServer);
+  serverRouter.post('/{server_id}/tag', serverController.tagServer);
+  serverRouter.post('/{server_id}/push', serverController.pushServer);
+  serverRouter.get('/{serverId}/export', serverController.exportServer);
+  serverRouter.post('/import', serverController.importServer);
 }
 
 /// /opentool-daemon/tools
