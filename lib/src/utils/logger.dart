@@ -1,9 +1,10 @@
 import 'dart:io';
 import 'package:logging/logging.dart';
+import '../config.dart';
 
-enum LogModule { http }
+enum LogModule { http, sse, manage, server, tool }
 
-DaemonLogger logger = DaemonLogger(Level.INFO);
+DaemonLogger logger = DaemonLogger(config.log?.level??Level.INFO);
 
 class DaemonLogger {
   static final DaemonLogger _singleton = DaemonLogger._internal();

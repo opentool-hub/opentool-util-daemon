@@ -15,7 +15,6 @@ const String NULL_REPO = 'native';
 const String NULL_TAG = 'latest';
 
 const String OPENTOOL_FILE_NAME = 'Opentoolfile';
-// const String METADATA_FILE_NAME = 'metadata.json';
 const String OPENTOOL_FILE_JSON_NAME = 'Opentoolfile.json';
 const String OPENTOOL_DAEMON_NAME = "OpenTool Daemon";
 const String SYSTEM_CONFIG_FILE_NAME = "config.json";

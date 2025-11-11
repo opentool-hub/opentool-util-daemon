@@ -7,6 +7,7 @@ import 'package:opentool_daemon/src/storage/hive_storage.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart';
 import 'package:shelf_router/shelf_router.dart';
+import 'config.dart';
 import 'constants.dart';
 import 'controller/manage_controller.dart';
 import 'controller/tool_controller.dart';
@@ -15,14 +16,13 @@ import 'service/tool_service.dart';
 
 class DaemonServer {
   late HttpServer server;
-  String version;
 
-  DaemonServer({required this.version});
 
   Future<void> start() async {
-    String ip = InternetAddress.loopbackIPv4.host;
-    int port = DAEMON_DEFAULT_PORT;
-    String prefix = DAEMON_DEFAULT_PREFIX;
+    String version = config.version;
+    String host = config.server?.host??InternetAddress.loopbackIPv4.host;
+    int port = config.server?.port??DAEMON_DEFAULT_PORT;
+    String prefix = config.server?.prefix??DAEMON_DEFAULT_PREFIX;
     String serverPrefix = SERVER_PREFIX;
     String toolPrefix = TOOL_PREFIX;
 
@@ -54,9 +54,10 @@ class DaemonServer {
 
     Handler handler = pipeline
         .addMiddleware(exceptionHandler())
+        .addMiddleware(logRequest())
         .addHandler(mainRouter);
 
-    server = await serve(handler, ip, port);
+    server = await serve(handler, host, port);
     print("Start OpenTool Daemon: http://${server.address.host}:${server.port}$prefix");
   }
 

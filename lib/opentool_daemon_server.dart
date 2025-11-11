@@ -6,3 +6,4 @@ library;
 export 'src/server.dart';
 export 'src/controller/dto.dart';
 export 'src/constants.dart';
+export 'src/config.dart';

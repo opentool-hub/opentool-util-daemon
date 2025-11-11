@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:opentool_dart/opentool_dart.dart';
-import '../../opentool_daemon_server.dart';
+import 'package:opentool_daemon/opentool_daemon_server.dart';
 import '../utils/sse_client.dart';
 
 class DaemonClient {

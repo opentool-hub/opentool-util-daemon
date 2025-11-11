@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io' as io;
+import 'package:path/path.dart' as p;
 
 class EventData {
   final String event;
@@ -16,7 +17,8 @@ class SseClient {
   SseClient({required this.baseUrl, this.headers, this.apiKey});
 
   Future<Stream<String>> request(String path, {Map<String, dynamic>? requestBody, Map<String, dynamic>? queryParameters}) async {
-    Uri uri = Uri.parse(baseUrl).replace(path: path,queryParameters: queryParameters);
+    Uri uri = Uri.parse("$baseUrl$path").replace(queryParameters: queryParameters);
+
     io.HttpClient httpClient = io.HttpClient();
     io.HttpClientRequest request = await httpClient.postUrl(uri);
 
