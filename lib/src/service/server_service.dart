@@ -109,16 +109,16 @@ class ServerService {
     String unzipFolder = await ZipUtil.unzipToTemp(otsFileTempPath);
     String opentoolfileJsonPath = "$unzipFolder${Platform.pathSeparator}$OPENTOOL_FILE_JSON_NAME";
     Map<String, dynamic> opentoolfileJson = await JsonFileUtil.readFromFile(opentoolfileJsonPath);
-    OpentoolfileConfig opentoolConfig = OpentoolfileConfig.fromJson(opentoolfileJson);
+    OpentoolfileConfig opentoolfileConfig = OpentoolfileConfig.fromJson(opentoolfileJson);
 
     /// 2. check os and cpuArch matching
     String os = SystemUtil.getOS();
     String cpuArch = SystemUtil.getCpuArch();
 
-    if(opentoolConfig.os != os && opentoolConfig.cpuArch != cpuArch) throw SystemMismatchException(os, cpuArch, opentoolConfig.os, opentoolConfig.cpuArch);
+    if(opentoolfileConfig.os != os && opentoolfileConfig.cpuArch != cpuArch) throw SystemMismatchException(os, cpuArch, opentoolfileConfig.os, opentoolfileConfig.cpuArch);
 
     String internalId = uniqueId();
-    String targetPath = "$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}${opentoolConfig.name}-$internalId.ots";
+    String targetPath = "$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}${opentoolfileConfig.name}-$internalId.ots";
     await DirectoryUtil.copyAndRenameFile(otsFileTempPath, targetPath);
   }
 
@@ -175,14 +175,21 @@ class ServerService {
     /// 2. parse `Opentoolfile.json`
     String opentoolFileJsonPath = "$tempFolder${Platform.pathSeparator}$OPENTOOL_FILE_JSON_NAME";
     Map<String, dynamic> opentoolFileJson =await JsonFileUtil.readFromFile(opentoolFileJsonPath);
-    OpentoolfileConfig opentoolFileConfig = OpentoolfileConfig.fromJson(opentoolFileJson);
+    OpentoolfileConfig opentoolfileConfig = OpentoolfileConfig.fromJson(opentoolFileJson);
 
-    /// 3. new internalId, and save to .opentool/servers/{name}-{internalId}.ots
+    /// 3. check os and cpuArch matching
+    String os = SystemUtil.getOS();
+    String cpuArch = SystemUtil.getCpuArch();
+
+    if(opentoolfileConfig.os != os && opentoolfileConfig.cpuArch != cpuArch) throw SystemMismatchException(os, cpuArch, opentoolfileConfig.os, opentoolfileConfig.cpuArch);
+
+
+    /// 4. new internalId, and save to .opentool/servers/{name}-{internalId}.ots
     String internalId = uniqueId();
-    String otsFileTargetPath = "$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}${opentoolFileConfig.name}-$internalId.ots";
+    String otsFileTargetPath = "$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}${opentoolfileConfig.name}-$internalId.ots";
     await DirectoryUtil.copyAndRenameFile(otsFilePath, otsFileTargetPath);
 
-    /// 4. save to db
+    /// 5. save to db
     InternalServerDao internalServerDao = InternalServerDao(
       id: internalId,
       file: otsFileTargetPath,
@@ -195,7 +202,7 @@ class ServerService {
       alias: serverId,
       registry: NULL_REGISTRY,
       repo: NULL_REPO,
-      name: opentoolFileConfig.name,
+      name: opentoolfileConfig.name,
       tag: NULL_TAG,
       internalId: internalId,
     );
