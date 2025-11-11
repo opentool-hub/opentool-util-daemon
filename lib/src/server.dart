@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:opentool_daemon/src/controller/server_controller.dart';
+import 'package:opentool_daemon/src/middleware.dart';
 import 'package:opentool_daemon/src/service/server_service.dart';
 import 'package:opentool_daemon/src/service/manage_service.dart';
 import 'package:opentool_daemon/src/storage/hive_storage.dart';
@@ -50,7 +51,10 @@ class DaemonServer {
     manageRouter.mount(toolPrefix, toolRouter);
 
     Pipeline pipeline = Pipeline();
-    Handler handler = pipeline.addHandler(mainRouter);
+
+    Handler handler = pipeline
+        .addMiddleware(exceptionHandler())
+        .addHandler(mainRouter);
 
     server = await serve(handler, ip, port);
     print("Start OpenTool Daemon: http://${server.address.host}:${server.port}$prefix");

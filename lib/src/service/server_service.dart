@@ -183,7 +183,6 @@ class ServerService {
 
     if(opentoolfileConfig.os != os && opentoolfileConfig.cpuArch != cpuArch) throw SystemMismatchException(os, cpuArch, opentoolfileConfig.os, opentoolfileConfig.cpuArch);
 
-
     /// 4. new internalId, and save to .opentool/servers/{name}-{internalId}.ots
     String internalId = uniqueId();
     String otsFileTargetPath = "$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}${opentoolfileConfig.name}-$internalId.ots";
