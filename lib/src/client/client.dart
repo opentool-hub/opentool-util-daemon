@@ -166,15 +166,29 @@ class DaemonClient {
     return result;
   }
 
-  /// POST /tools/{serverId}/start
-  Future<void> startServer(String serverId, String? hostType, {required void Function(CommandResultDto commandOutput) onData, required void Function(CommandResultDto commandError) onError}) async {
+  /// POST /tools/create
+  Future<void> runServer(String serverId, String? hostType, {required void Function(CommandResultDto commandOutput) onData, required void Function(CommandResultDto commandError) onError}) async {
     Map<String, dynamic>? queryParameters;
     if(hostType != null && hostType.isNotEmpty) {
       queryParameters = {
+        'serverId': serverId,
         'hostType': hostType
       };
     }
-    Stream<String> sseStream = await toolSse.request('/${serverId}/start', queryParameters: queryParameters);
+    Stream<String> sseStream = await toolSse.request('/create', queryParameters: queryParameters);
+    void Function(String event, Map<String, dynamic> data) onEvent = (String event, Map<String, dynamic> data) {
+      if(event == EventType.DATA) {
+        onData(CommandResultDto.fromJson(data));
+      } else if(event == EventType.DONE) {
+        onError(CommandResultDto.fromJson(data));
+      }
+    };
+    sseStream.listen((data) => SseClient.parse(data, onEvent));
+  }
+
+  /// POST /tools/{toolId}/start
+  Future<void> startTool(String toolId, {required void Function(CommandResultDto commandOutput) onData, required void Function(CommandResultDto commandError) onError}) async {
+    Stream<String> sseStream = await toolSse.request('/${toolId}/start');
     void Function(String event, Map<String, dynamic> data) onEvent = (String event, Map<String, dynamic> data) {
       if(event == EventType.DATA) {
         onData(CommandResultDto.fromJson(data));

@@ -23,13 +23,34 @@ class ToolController {
     return Response.ok(jsonEncode(toolsDto), headers: JSON_HEADERS,);
   }
 
-  /// POST /tools/{serverId}/start
-  Future<Response> startServer(Request request, String serverId) async {
+  /// POST /tools/create?from=<serverId>
+  Future<Response> runServer(Request request) async {
+    final queryParams = request.url.queryParameters;
+    String? serverId = queryParams['from'];
+    if(serverId == null) throw ArgumentError('serverId is required');
+    String hostType = queryParams['hostType']??HostType.ANY;
+    ServerModel serverModel = await serverService.get(serverId);
+    StreamController<List<int>> streamController = StreamController<List<int>>();
+    await toolService.runServer(serverModel, hostType,
+      onStdout: (command, output){
+        CommandResultDto commandResultDto = CommandResultDto(command: command, output: output);
+        _pushData(streamController, EventType.DATA, jsonEncode(commandResultDto.toJson()));
+      },
+      onStderr: (command, error){
+        CommandResultDto commandResultDto = CommandResultDto(command: command, error: error);
+        _pushData(streamController, EventType.ERROR, jsonEncode(commandResultDto.toJson()));
+      },
+    );
+    return Response.ok(streamController.stream, headers: STREAM_HEADERS, context: {'shelf.io.buffer_output': false});
+  }
+
+  /// POST /tools/{toolId}/start
+  Future<Response> startTool(Request request, String serverId) async {
     final queryParams = request.url.queryParameters;
     String hostType = queryParams['hostType']??HostType.ANY;
     ServerModel serverModel = await serverService.get(serverId);
     StreamController<List<int>> streamController = StreamController<List<int>>();
-    await toolService.startServer(serverModel, hostType,
+    await toolService.runServer(serverModel, hostType,
       onStdout: (command, output){
         CommandResultDto commandResultDto = CommandResultDto(command: command, output: output);
         _pushData(streamController, EventType.DATA, jsonEncode(commandResultDto.toJson()));

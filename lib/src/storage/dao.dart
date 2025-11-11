@@ -59,20 +59,24 @@ class ToolDao extends HiveObject {
   String alias;
 
   @HiveField(2)
-  String host;
+  String tag;
 
   @HiveField(3)
-  int port;
+  String host;
 
   @HiveField(4)
-  String apiKey;
+  int port;
 
   @HiveField(5)
+  String apiKey;
+
+  @HiveField(6)
   String status;
 
   ToolDao({
     required this.id,
     required this.alias,
+    required this.tag,
     required this.host,
     required this.port,
     required this.apiKey,

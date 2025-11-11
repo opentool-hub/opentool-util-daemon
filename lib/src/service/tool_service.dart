@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:opentool_daemon/src/utils/directory_util.dart';
-import 'package:opentool_daemon/src/utils/json_file_util.dart';
-import 'package:opentool_daemon/src/utils/zip_util.dart';
 import 'package:opentool_dart/opentool_dart.dart';
+import '../utils/directory_util.dart';
+import '../utils/json_file_util.dart';
+import '../utils/zip_util.dart';
 import '../constants.dart';
 import '../storage/cache_storage.dart';
 import '../storage/hive_storage.dart';
@@ -35,7 +35,7 @@ class ToolService {
     return ToolModel.fromDao(toolDao);
   }
 
-  Future<void> startServer(ServerModel server, String hostType, {void Function(String script, String output)? onStdout, void Function(String script, String error)? onStderr, bool printStd = true,}) async {
+  Future<void> runServer(ServerModel server, String hostType, {void Function(String script, String output)? onStdout, void Function(String script, String error)? onStderr, bool printStd = true,}) async {
     /// 1. get the server internal file, .opentool/servers/{name}-{internalId}.ots, then unzip to temp folder
     String name = server.name;
     String internalId = server.internalId;
@@ -55,28 +55,70 @@ class ToolService {
     String entrypoint = config.run.entrypoint;
     List<String> cmds = config.run.cmds;
 
+    String tag = server.tag;
+    cmds.add("--$CLI_ARGUMENT_TAG $tag");
+
     String host = hostType;
-    cmds.add("--toolHost $host");
+    cmds.add("--$CLI_ARGUMENT_HOST $host");
 
     int lastPort = (await _cacheToolStorage.list()).last.port;
     int port = lastPort + 1;
-    cmds.add("--toolPort $port");
+    cmds.add("--$CLI_ARGUMENT_PORT $port");
 
     String apiKey = uniqueId(shorter: false);
-    cmds.add("--toolApiKey $apiKey");
+    cmds.add("--$CLI_ARGUMENT_APIKEYS $apiKey");
 
     unawaited(CommandUtil.runStream(workdir, entrypoint, cmds, onStdout: onStdout, onStderr: onStderr, printStd: printStd));
 
-    /// 3. add to storage and clients
+    /// 3. add to storage
     ToolDao toolDao = ToolDao(
       id: toolId,
       alias: toolId,
+      tag: tag,
       host: host,
       port: port,
       apiKey: apiKey,
       status: ToolStatusType.RUNNING,
     );
     await _cacheToolStorage.add(toolDao);
+  }
+
+  Future<void> startTool(ToolModel tool, {void Function(String script, String output)? onStdout, void Function(String script, String error)? onStderr, bool printStd = true,}) async {
+    /// 1. run tool
+    String toolFolder = "$OPENTOOL_PATH${Platform.pathSeparator}$TOOL_FOLDER${Platform.pathSeparator}${tool.id}";
+    String opentoolFileJsonPath = "$toolFolder${Platform.pathSeparator}$OPENTOOL_FILE_JSON_NAME";
+    Map<String, dynamic> opentoolFileJson = await JsonFileUtil.readFromFile(opentoolFileJsonPath);
+    OpentoolfileConfig config = OpentoolfileConfig.fromJson(opentoolFileJson);
+    String workdir = config.run.workdir;
+    String entrypoint = config.run.entrypoint;
+    List<String> cmds = config.run.cmds;
+
+    String tag = tool.tag;
+    cmds.add("--$CLI_ARGUMENT_TAG $tag");
+
+    String host = tool.host;
+    cmds.add("--$CLI_ARGUMENT_HOST $host");
+
+    int lastPort = tool.port;
+    int port = lastPort + 1;
+    cmds.add("--$CLI_ARGUMENT_PORT $port");
+
+    String apiKey = tool.apiKey;
+    cmds.add("--$CLI_ARGUMENT_APIKEYS $apiKey");
+
+    unawaited(CommandUtil.runStream(workdir, entrypoint, cmds, onStdout: onStdout, onStderr: onStderr, printStd: printStd));
+
+    /// 2. update to storage
+    ToolDao toolDao = ToolDao(
+      id: tool.id,
+      alias: tool.alias,
+      tag: tag,
+      host: host,
+      port: port,
+      apiKey: apiKey,
+      status: ToolStatusType.RUNNING,
+    );
+    await _cacheToolStorage.update(toolDao);
   }
 
   Future<void> check(String toolId) async {

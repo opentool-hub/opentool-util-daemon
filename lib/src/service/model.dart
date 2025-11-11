@@ -84,6 +84,7 @@ class ServerModel {
 class ToolModel {
   String id;
   String alias;
+  String tag;
   String host ;
   int port;
   String apiKey;
@@ -92,6 +93,7 @@ class ToolModel {
   ToolModel({
     required this.id,
     required this.alias,
+    required this.tag,
     required this.host,
     required this.port,
     required this.apiKey,
@@ -102,6 +104,7 @@ class ToolModel {
     return ToolModel(
       id: dao.id,
       alias: dao.alias,
+      tag: dao.tag,
       host: dao.host,
       port: dao.port,
       apiKey: dao.apiKey,
@@ -113,6 +116,7 @@ class ToolModel {
     return ToolDao(
       id: id,
       alias: alias,
+      tag: tag,
       host: host,
       port: port,
       apiKey: apiKey,

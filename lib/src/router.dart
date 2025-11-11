@@ -28,8 +28,9 @@ void serverRoutes(ServerController serverController) {
 
 /// /opentool-daemon/tools
 void toolRoutes(ToolController toolController) {
-  toolRouter.post('/{serverId}/start', toolController.startServer);
   toolRouter.get('/list', toolController.listTools);
+  toolRouter.post('/create', toolController.runServer);
+  toolRouter.post('/{toolId}/start', toolController.startTool);
   toolRouter.post('/{toolId}/stop', toolController.stopTool);
   toolRouter.delete('/{toolId}', toolController.deleteTool);
   toolRouter.post('/{toolId}/call', toolController.callTool);
