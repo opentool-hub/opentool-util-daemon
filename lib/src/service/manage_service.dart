@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'package:opentool_daemon/src/utils/logger.dart';
+
 import '../constants.dart';
 import '../hub/dto.dart';
 import '../hub/hub_client.dart';
@@ -29,7 +31,7 @@ class ManageService {
   }
 
   Future<void> login(LoginInfoModel loginInfoModel) async {
-
+    logger.log(LogModule.manage, "login.input", detail: "registry: ${loginInfoModel.registry}, username: ${loginInfoModel.username}");
     hubClient = HubClient(loginInfoModel.registry);
     if(hubClient ==  null) throw LoginFailedException(loginInfoModel.username);
 
@@ -42,6 +44,7 @@ class ManageService {
     currConfig.auth = currAuth;
 
     await JsonFileUtil.saveToFile(currConfig.toJson(), OPENTOOL_PATH, SYSTEM_CONFIG_FILE_NAME);
+    logger.log(LogModule.manage, "login.result", detail: "registry: ${loginResult}");
   }
 
   Future<String> pullToTemp({required String name, required String tag, required void Function(int sizeByByte, String digest) onStart, required void Function(int percent) onDownload, required void Function() onDone}) async {

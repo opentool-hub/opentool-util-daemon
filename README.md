@@ -2,234 +2,180 @@
 
 English | [中文](README-zh_CN.md)
 
-`OpenTool Daemon` provides a local persistent service for managing OpenTool Server instances. It listens on a local port and exposes HTTP endpoints for CLI or other frontend applications.
+`OpenTool Daemon` is a lightweight HTTP daemon that keeps track of local OpenTool servers and running tool processes. The daemon listens on `http://127.0.0.1:19627/opentool-daemon` by default and exposes REST + Server-Sent Event (SSE) endpoints that can be consumed by the CLI or any other automation.
 
 ---
 
-## Build
-
-### Windows
+## Build & Run
 
 ```bash
+# install dependencies
 dart pub get
-dart compile exe bin/opentool_daemon.dart -o build/opentoold.exe
+
+# build release binaries
+dart compile exe bin/opentool_daemon.dart -o build/opentoold  # macOS / Linux
+# dart compile exe bin/opentool_daemon.dart -o build/opentoold.exe  # Windows
+
+# run locally
+dart run bin/opentool_daemon.dart --config bin/config.json
 ```
 
-### macOS / Linux
-
-```bash
-dart pub get
-dart compile exe bin/opentool_daemon.dart -o build/opentoold
-```
-
----
-
-## Launch
-
-```bash
-./opentoold
-```
-
-By default, it listens on `http://127.0.0.1:19627`
+The daemon will persist metadata under `~/.opentool` (servers, tools, config) and write logs to `log/daemon.log`.
 
 ---
 
 ## API Overview
 
-| Method | Path        | Description                                    |
-|--------|-------------|------------------------------------------------|
-| GET    | `/version`  | Get version and check if the daemon is running |
-| POST   | `/register` | Register a new OpenTool Server instance        |
-| GET    | `/list`     | Retrieve the list of registered instances      |
-| POST   | `/call`     | Forward a call request to the target instance  |
-| POST   | `/load`     | Get the OpenTool Server JSON description       |
-| POST   | `/stop`     | Stop an OpenTool Server instance               |
-| POST   | `/remove`   | Remove an OpenTool Server instance             |
+All paths below are relative to the base prefix `/opentool-daemon`.
+
+| Group   | Method | Path                              | Description |
+|---------|--------|-----------------------------------|-------------|
+| Manage  | GET    | `/version`                        | Health check and daemon version |
+| Manage  | POST   | `/opentool-hub/login`             | Authenticate with an OpenTool Hub registry |
+| Manage  | GET    | `/opentool-hub/user`              | Return cached Hub user info |
+| Manage  | POST   | `/opentool-hub/logout`            | Clear stored Hub credentials |
+| Server  | GET    | `/servers/list`                   | List cached OpenTool servers |
+| Server  | POST   | `/servers/build`                  | Build a server from an Opentoolfile (SSE stream) |
+| Server  | POST   | `/servers/pull`                   | Pull a server from the Hub into a temp `.ots` (SSE stream) |
+| Server  | DELETE | `/servers/{serverId}`             | Delete a server record |
+| Server  | POST   | `/servers/{serverId}/tag`         | Add or reuse a tag for an existing server |
+| Server  | POST   | `/servers/{serverId}/push`        | Push a local server artifact to the Hub (SSE stream) |
+| Server  | GET    | `/servers/{serverId}/export`      | Copy an `.ots` to a destination folder |
+| Server  | POST   | `/servers/import`                 | Import an external `.ots` file |
+| Server  | POST   | `/servers/{serverId}/alias`       | Rename a server alias |
+| Tool    | GET    | `/tools/list`                     | List running tools (or `all` tools) |
+| Tool    | POST   | `/tools/create`                   | Run a tool from a server definition (SSE stream) |
+| Tool    | POST   | `/tools/{toolId}/start`           | Restart a previously created tool (SSE stream) |
+| Tool    | POST   | `/tools/{toolId}/stop`            | Stop a running tool |
+| Tool    | DELETE | `/tools/{toolId}`                 | Stop and remove a tool |
+| Tool    | POST   | `/tools/{toolId}/call`            | Call a tool function (JSON RPC) |
+| Tool    | POST   | `/tools/{toolId}/streamCall`      | Stream tool responses over SSE |
+| Tool    | GET    | `/tools/{toolId}/load`            | Return the OpenTool JSON spec |
+| Tool    | POST   | `/tools/{toolId}/alias`           | Rename a tool alias |
+
+### Notes on Streaming Endpoints
+
+`/servers/build`, `/servers/pull`, `/servers/{id}/push`, `/tools/create`, `/tools/{id}/start`, and `/tools/{id}/streamCall` return `text/event-stream`. Events follow this format:
+
+```
+event:START|DATA|DONE|ERROR
+data:{"json":"payload"}
+```
+
+Use the client in `lib/src/client/client.dart` or any SSE-capable HTTP library to consume them.
 
 ---
 
-## 1. Version Check
+## Manage API Examples
 
-**Request**
-
-```http
-GET /version
-```
-
-**Response**
-
+### GET /version
 ```json
 {
-  "version": "1.0.0"
+  "name": "OpenTool Daemon",
+  "version": "0.1.0"
 }
 ```
+
+### POST /opentool-hub/login
+```json
+{
+  "registry": "https://api.opentool-hub.com",
+  "username": "agent",
+  "password": "secret"
+}
+```
+Response:
+```json
+{
+  "registry": "https://api.opentool-hub.com",
+  "username": "agent"
+}
+```
+
+### GET /opentool-hub/user
+Returns the cached registry + username. Use `/opentool-hub/logout` (POST) to clear credentials.
 
 ---
 
-## 2. Register a Server Instance
+## Server API Examples
 
-**Request**
-
-```http
-POST /register
-Content-Type: application/json
-```
-
-**Body**
-
-```json
-{
-  "file": "<FILE PATH>",
-  "host": "0.0.0.0",
-  "port": 9628,
-  "prefix": "/opentool",
-  "apiKeys": ["123", "456"],
-  "pid": 12345
-}
-```
-
-**Response**
-
-```json
-{
-  "id": "<Server ID>"
-}
-```
-
----
-
-## 3. Get All Server Instances
-
-**Request**
-
-```http
-GET /list
-```
-
-**Response**
-
+### GET /servers/list
 ```json
 [
   {
-    "id": "<Server ID>",
-    "name": "My OpenTool Server",
-    "file": "/path/to/opentool-server",
-    "port": "8765",
-    "pid": 12345
+    "id": "srv-1",
+    "alias": "alpha",
+    "registry": "native",
+    "repo": "native",
+    "name": "demo-server",
+    "tag": "latest"
   }
 ]
 ```
 
----
-
-## 4. Forward a Tool Call
-
-**Request**
-
-```http
-POST /call
-Content-Type: application/json
-```
-
-**Body**
-
+### POST /servers/build?opentoolfile=/path/to/repo&name=demo&tag=latest
+Streams build progress for each command listed in `Opentoolfile`. `event:DATA` packets contain:
 ```json
 {
-  "id": "<Server ID>",
-  "functionCall": {
-    "id": "call-001",
-    "name": "getStatus",
-    "arguments": {}
-  }
+  "script": "dart run build",
+  "output": "..."
 }
 ```
+`event:DONE` closes the stream once the `.ots` artifact is stored under `~/.opentool/servers`.
 
-**Response**
+### POST /servers/{serverId}/tag?tag=stable
+Returns the tagged server DTO. If the tag already exists for the same internal build, the existing record is reused.
 
+### POST /servers/{serverId}/push
+SSE stream with:
+- `START`: `{ "serverId": "srv-1", "sizeByByte": 123456, "digest": "sha256..." }`
+- `DATA`: `{ "serverId": "srv-1", "percent": 42 }`
+- `DONE`: `{ "id": "srv-1" }`
+
+### GET /servers/{serverId}/export
+Provide a JSON body `{ "path": "/tmp/output" }` describing the destination directory. The daemon copies the `.ots` into that folder using the pattern `<repo>-<name>-<tag>-<os>-<cpu>.ots`.
+
+### POST /servers/import
+```json
+{
+  "path": "/tmp/server.ots"
+}
+```
+Response mirrors `OpenToolServerDto` for the imported build.
+
+---
+
+## Tool API Examples
+
+### GET /tools/list?all=1
+Returns every tool entry. Omit `all` or set it to `0` to only receive running tools.
+
+### POST /tools/create?from=srv-1&hostType=local
+Starts a tool from the selected server. SSE events deliver command output (`event:DATA`) or errors (`event:ERROR`). The daemon allocates a new port, API key, and workspace under `~/.opentool/tools/{toolId}`.
+
+### POST /tools/{toolId}/call
+Request body should follow the OpenTool function-call schema:
 ```json
 {
   "id": "call-001",
-  "result": {
-    "status": "running"
-  }
+  "name": "status",
+  "arguments": {"depth": 1}
 }
 ```
+Response is a `ToolReturn` JSON payload produced by the tool process.
+
+### POST /tools/{toolId}/streamCall
+Behaves like `/call`, but emits SSE packets so long-running invocations can stream tokens or intermediate results.
+
+### GET /tools/{toolId}/load
+Returns the `OpenTool` JSON description parsed from the packaged `Opentoolfile.json`. Use `/tools/{toolId}/alias?alias=new-name` (POST) to rename a tool entry, `/tools/{toolId}/stop` to stop the process, and `DELETE /tools/{toolId}` to remove it entirely (the daemon stops the process and evicts the cache entry).
 
 ---
 
-## 5. Load OpenTool JSON Description
+## Client Library
 
-**Request**
-
-```http
-POST /load
-Content-Type: application/json
-```
-
-**Body**
-
-```json
-{
-  "id": "<Server ID>"
-}
-```
-
-**Response**
-
-* Follows the OpenTool Specification JSON structure.
+`lib/src/client/client.dart` provides a strongly-typed Dart client that wraps the manage/server/tool APIs, handles SSE parsing, and mirrors every endpoint listed above. Import it in other Dart packages to integrate with the daemon without reimplementing the HTTP/SSE plumbing.
 
 ---
 
-## 6. Stop an OpenTool Server
-
-**Request**
-
-```http
-POST /stop
-Content-Type: application/json
-```
-
-**Body**
-
-```json
-{
-  "id": "<Server ID>"
-}
-```
-
-**Response**
-
-```json
-{
-  "id": "<Server ID>",
-  "status": "stopSuccess"
-}
-```
-
----
-
-## 7. Remove an OpenTool Server Instance
-
-**Request**
-
-```http
-POST /remove
-Content-Type: application/json
-```
-
-**Body**
-
-```json
-{
-  "id": "<Server ID>"
-}
-```
-
-**Response**
-
-```json
-{
-  "id": "<Server ID>",
-  "status": "removeSuccess"
-}
-```
+Need more detail? Check `lib/src/controller` for DTO definitions and `lib/src/service` for the exact side effects of each endpoint.

@@ -1,0 +1,65 @@
+import 'package:opentool_daemon/src/service/exception.dart';
+import 'package:opentool_daemon/src/service/model.dart';
+import 'package:opentool_daemon/src/service/tool_service.dart';
+import 'package:opentool_daemon/src/storage/dao.dart';
+import 'package:test/test.dart';
+import '../test_doubles.dart';
+
+void main() {
+  group('ToolService', () {
+    late StubHiveToolStorage hiveToolStorage;
+    late ToolService service;
+
+    setUp(() {
+      hiveToolStorage = StubHiveToolStorage();
+      hiveToolStorage.seed([
+        ToolDao(
+          id: 'tool-1',
+          alias: 'alpha',
+          tag: '1.0.0',
+          host: '127.0.0.1',
+          port: 9000,
+          apiKey: 'key-1',
+          status: ToolStatusType.RUNNING,
+        ),
+        ToolDao(
+          id: 'tool-2',
+          alias: 'beta',
+          tag: '1.0.0',
+          host: '127.0.0.1',
+          port: 9001,
+          apiKey: 'key-2',
+          status: ToolStatusType.NOT_RUNNING,
+        ),
+      ]);
+      service = ToolService(hiveToolStorage);
+    });
+
+    test('list only returns running tools by default', () async {
+      final tools = await service.list();
+
+      expect(tools, hasLength(1));
+      expect(tools.single.id, equals('tool-1'));
+    });
+
+    test('list with all=true returns every tool', () async {
+      final tools = await service.list(all: true);
+
+      expect(tools, hasLength(2));
+    });
+
+    test('get returns the requested tool', () async {
+      final tool = await service.get('tool-1');
+
+      expect(tool.alias, equals('alpha'));
+      expect(tool.apiKey, equals('key-1'));
+    });
+
+    test('get throws ToolNotFoundException for unknown ids', () async {
+      expect(
+        () => service.get('missing'),
+        throwsA(isA<ToolNotFoundException>()),
+      );
+    });
+  });
+}

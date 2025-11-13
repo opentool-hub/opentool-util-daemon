@@ -7,3 +7,4 @@ log/
 pubspec.lock
 *.iml
 .DS_Store
+AGENTS.md
