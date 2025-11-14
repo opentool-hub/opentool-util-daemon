@@ -333,9 +333,17 @@ class DaemonClient {
     required void Function(CommandResultDto commandOutput) onData,
     required void Function(CommandResultDto commandError) onError,
     void Function(Object error, StackTrace stackTrace)? onStreamError,
+    int timeoutSeconds = -1,
   }) async {
     try {
-      Stream<String> sseStream = await toolSse.request('/${toolId}/start');
+      Map<String, dynamic>? queryParameters;
+      if (timeoutSeconds >= 0) {
+        queryParameters = {'timeout': '$timeoutSeconds'};
+      }
+      Stream<String> sseStream = await toolSse.request(
+        '/${toolId}/start',
+        queryParameters: queryParameters,
+      );
       void Function(String event, Map<String, dynamic> data) onEvent =
           (String event, Map<String, dynamic> data) {
             if (event == EventType.DATA) {

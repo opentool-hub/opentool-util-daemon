@@ -167,40 +167,120 @@ class ToolController {
       detail: "toolId: $toolId, queryParams: ${jsonEncode(queryParams)}",
       level: Level.FINE,
     );
+    final int timeoutSeconds =
+        int.tryParse(queryParams['timeout'] ?? '-1') ?? -1;
     String? hostOverride = queryParams['hostType'];
     ToolModel toolModel = await toolService.get(toolId);
     if (hostOverride != null && hostOverride.isNotEmpty) {
       toolModel.host = hostOverride;
     }
-    StreamController<List<int>> streamController =
-        StreamController<List<int>>();
-    await toolService.startTool(
-      toolModel,
-      onStdout: (command, output) {
-        CommandResultDto commandResultDto = CommandResultDto(
-          command: command,
-          output: output,
+
+    final streamController = StreamController<List<int>>();
+    final completer = Completer<void>();
+    bool isClosed = false;
+
+    void closeStream() {
+      if (isClosed) return;
+      isClosed = true;
+      unawaited(streamController.close());
+    }
+
+    void completeError(Object error, StackTrace stackTrace) {
+      if (completer.isCompleted) {
+        logger.log(
+          LogModule.http,
+          'startTool.error.late',
+          detail: 'error: $error\n$stackTrace',
+          level: Level.WARNING,
         );
-        _pushData(
-          streamController,
-          EventType.DATA,
-          jsonEncode(commandResultDto.toJson()),
-          logMessage: "startTool.push",
-        );
-      },
-      onStderr: (command, error) {
-        CommandResultDto commandResultDto = CommandResultDto(
-          command: command,
-          error: error,
-        );
+        return;
+      }
+      CommandResultDto errorDto = CommandResultDto(
+        command: 'startTool',
+        error: error.toString(),
+      );
+      if (!isClosed) {
         _pushData(
           streamController,
           EventType.ERROR,
-          jsonEncode(commandResultDto.toJson()),
-          logMessage: "startTool.push",
+          jsonEncode(errorDto.toJson()),
+          logMessage: 'startTool.push',
         );
-      },
-    );
+      }
+      completer.complete();
+      closeStream();
+    }
+
+    Future<void> startFuture;
+    try {
+      startFuture = toolService.startTool(
+        toolModel,
+        onStdout: (command, output) {
+          if (isClosed) return;
+          CommandResultDto commandResultDto = CommandResultDto(
+            command: command,
+            output: output,
+          );
+          _pushData(
+            streamController,
+            EventType.DATA,
+            jsonEncode(commandResultDto.toJson()),
+            logMessage: "startTool.push",
+          );
+        },
+        onStderr: (command, error) {
+          if (isClosed) return;
+          CommandResultDto commandResultDto = CommandResultDto(
+            command: command,
+            error: error,
+          );
+          _pushData(
+            streamController,
+            EventType.ERROR,
+            jsonEncode(commandResultDto.toJson()),
+            logMessage: "startTool.push",
+          );
+        },
+      );
+    } catch (error, stackTrace) {
+      completeError(error, stackTrace);
+      return Response.ok(
+        streamController.stream,
+        headers: STREAM_HEADERS,
+        context: {'shelf.io.buffer_output': false},
+      );
+    }
+
+    startFuture.catchError(completeError);
+
+    if (timeoutSeconds >= 0) {
+      Future.delayed(Duration(seconds: timeoutSeconds), () {
+        if (completer.isCompleted) return;
+        const timeoutMessage =
+            'Tool is still starting; daemon will finish in background.';
+        CommandResultDto timeoutDto = CommandResultDto(
+          command: 'startTool',
+          output: timeoutMessage,
+        );
+        if (!isClosed) {
+          _pushData(
+            streamController,
+            EventType.DATA,
+            jsonEncode(timeoutDto.toJson()),
+            logMessage: 'startTool.timeout',
+          );
+        }
+        logger.log(
+          LogModule.http,
+          'startTool.timeout',
+          detail: 'toolId: $toolId timeout: $timeoutSeconds',
+          level: Level.INFO,
+        );
+        completer.complete();
+        closeStream();
+      });
+    }
+
     return Response.ok(
       streamController.stream,
       headers: STREAM_HEADERS,
