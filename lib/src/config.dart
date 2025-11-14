@@ -11,17 +11,37 @@ part 'config.g.dart';
 final Config config = initConfig();
 
 Config initConfig() {
-  String configFilePath = '${Directory.current.path}${Platform.pathSeparator}bin${Platform.pathSeparator}config.json';
-  String configJsonString = File(configFilePath).readAsStringSync();
-  final Map<String, dynamic> configJson = jsonDecode(configJsonString);
-  final Config config = Config.fromJson(configJson);
-  String? versionFromPubspec = getVersionFromPubspec();
-  if(versionFromPubspec != null) config.version = versionFromPubspec;
-  return config;
+  final String configFilePath =
+      '${Directory.current.path}${Platform.pathSeparator}bin${Platform.pathSeparator}config.json';
+  final String fallbackVersion = getVersionFromPubspec() ?? '0.0.0';
+  final File configFile = File(configFilePath);
+
+  Config buildDefaultConfig() =>
+      Config(version: fallbackVersion, server: Server(), log: Log());
+
+  if (!configFile.existsSync()) {
+    return buildDefaultConfig();
+  }
+
+  try {
+    final String configJsonString = configFile.readAsStringSync();
+    final Map<String, dynamic> configJson = jsonDecode(configJsonString);
+    final Config loadedConfig = Config.fromJson(configJson);
+    loadedConfig.server ??= Server();
+    loadedConfig.log ??= Log();
+    final String resolvedVersion = fallbackVersion.isNotEmpty
+        ? fallbackVersion
+        : (loadedConfig.version.isEmpty ? '0.0.0' : loadedConfig.version);
+    loadedConfig.version = resolvedVersion;
+    return loadedConfig;
+  } catch (_) {
+    return buildDefaultConfig();
+  }
 }
 
 String? getVersionFromPubspec() {
-  String pubspecFilePath = '${Directory.current.path}${Platform.pathSeparator}pubspec.yaml';
+  String pubspecFilePath =
+      '${Directory.current.path}${Platform.pathSeparator}pubspec.yaml';
   File pubspecFile = File(pubspecFilePath);
   if (!pubspecFile.existsSync()) return null;
 
@@ -47,7 +67,11 @@ class Server {
   String prefix;
   int port;
 
-  Server({this.host = HostType.LOCALHOST, this.prefix = DAEMON_DEFAULT_PREFIX, this.port = DAEMON_DEFAULT_PORT});
+  Server({
+    this.host = HostType.LOCALHOST,
+    this.prefix = DAEMON_DEFAULT_PREFIX,
+    this.port = DAEMON_DEFAULT_PORT,
+  });
 
   factory Server.fromJson(Map<String, dynamic> json) => _$ServerFromJson(json);
 }
