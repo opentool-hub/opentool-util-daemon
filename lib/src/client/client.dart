@@ -411,7 +411,7 @@ class DaemonClient {
 
   /// GET /tools/{toolId}/load
   Future<OpenTool?> loadTool(String toolId) async {
-    Response response = await toolDio.post('/${toolId}/load');
+    Response response = await toolDio.get('/${toolId}/load');
     return OpenTool.fromJson(response.data);
   }
 

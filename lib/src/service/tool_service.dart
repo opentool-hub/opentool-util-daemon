@@ -293,9 +293,9 @@ class ToolService {
 
   Future<OpenTool?> load(String toolId) async {
     logger.log(LogModule.tool, "load.input", detail: "toolId: $toolId");
-    OpenTool? tool;
-    await _checkThenRun(toolId, (client) async {
-      tool = await client.load();
+    OpenTool? tool = await _checkThenRun(toolId, (client) async {
+      OpenTool? tool = await client.load();
+      return tool;
     });
     logger.log(
       LogModule.tool,
@@ -324,9 +324,9 @@ class ToolService {
     );
   }
 
-  Future<void> _checkThenRun(
+  Future<T> _checkThenRun<T>(
     String toolId,
-    Future<void> Function(OpenToolClient client) onRun,
+    Future<T> Function(OpenToolClient client) onRun,
   ) async {
     logger.log(LogModule.tool, "check.input", detail: "toolId: $toolId");
     ToolDao? toolDao = await _cacheToolStorage.get(toolId);
@@ -336,7 +336,7 @@ class ToolService {
     }
     OpenToolClient client = _clients[toolId] ?? _registerClient(toolDao);
     try {
-      await onRun(client);
+      return await onRun(client);
     } catch (e) {
       toolDao.status = ToolStatusType.NOT_RUNNING;
       await _cacheToolStorage.update(toolDao);
@@ -347,7 +347,6 @@ class ToolService {
       );
       rethrow;
     }
-    logger.log(LogModule.tool, "check.result", detail: "toolId: $toolId");
   }
 
   OpenToolClient _registerClient(ToolDao toolDao) {
