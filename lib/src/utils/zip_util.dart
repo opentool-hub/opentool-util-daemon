@@ -3,7 +3,10 @@ import 'package:path/path.dart' as p;
 import 'package:archive/archive.dart';
 
 class ZipUtil {
-  static Future<void> zipDirectory(String sourceDirPath, String zipFilePath) async {
+  static Future<void> zipDirectory(
+    String sourceDirPath,
+    String zipFilePath,
+  ) async {
     final sourceDir = Directory(sourceDirPath);
     if (!await sourceDir.exists()) {
       throw Exception('Source directory does not exist: $sourceDirPath');
@@ -12,7 +15,10 @@ class ZipUtil {
     final encoder = ZipEncoder();
     final archive = Archive();
 
-    await for (var entity in sourceDir.list(recursive: true, followLinks: false)) {
+    await for (var entity in sourceDir.list(
+      recursive: true,
+      followLinks: false,
+    )) {
       if (entity is File) {
         final relativePath = p.relative(entity.path, from: sourceDirPath);
         final data = await entity.readAsBytes();
@@ -22,6 +28,7 @@ class ZipUtil {
 
     final zipData = encoder.encode(archive);
     final zipFile = File(zipFilePath);
+    await zipFile.parent.create(recursive: true);
     await zipFile.writeAsBytes(zipData!);
   }
 
@@ -33,7 +40,10 @@ class ZipUtil {
 
     /// 1. Create Temp Directory
     final tmpDir = await Directory.systemTemp.createTemp('opentool_unpack_');
-    final extractDir = p.join(tmpDir.path, p.basenameWithoutExtension(zipFilePath));
+    final extractDir = p.join(
+      tmpDir.path,
+      p.basenameWithoutExtension(zipFilePath),
+    );
     await Directory(extractDir).create(recursive: true);
 
     /// 2. Unzip

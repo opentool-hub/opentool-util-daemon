@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:json_annotation/json_annotation.dart';
 import 'package:opentool_daemon/src/service/exception.dart';
 import 'package:opentool_daemon/src/utils/system_util.dart';
@@ -6,20 +7,23 @@ import '../utils/opentoolfile_parser.dart';
 part 'config.g.dart';
 
 class OpentoolfileConfigUtil {
-  static Future<OpentoolfileConfig> fromFile(String name, String opentoolfilePath) async {
-    OpentoolfileParser parser = OpentoolfileParser(opentoolfilePath);
+  static Future<OpentoolfileConfig> fromFile(
+    String name,
+    String opentoolfilePath,
+  ) async {
+    final source = await File(opentoolfilePath).readAsString();
+    OpentoolfileParser parser = OpentoolfileParser(source);
     Map<String, String> args = await parser.getArgs();
     Map<String, String> envs = await parser.getEnvs();
     List<String> runs = await parser.getRun();
     String? workdir = await parser.getWorkdir();
-    if (workdir == null) throw OpentoolfileMissingArgumentException(InstructNameType.WORKDIR);
+    if (workdir == null)
+      throw OpentoolfileMissingArgumentException(InstructNameType.WORKDIR);
     String? entrypoint = await parser.getEntrypoint();
-    if (entrypoint == null) throw OpentoolfileMissingArgumentException(InstructNameType.ENTRYPOINT);
+    if (entrypoint == null)
+      throw OpentoolfileMissingArgumentException(InstructNameType.ENTRYPOINT);
     List<String> cmds = await parser.getCmd();
-    OpenToolBuild build = OpenToolBuild(
-      args: args,
-      runs: runs,
-    );
+    OpenToolBuild build = OpenToolBuild(args: args, runs: runs);
 
     OpenToolRun run = OpenToolRun(
       envs: envs,
@@ -42,21 +46,28 @@ class OpentoolfileConfigUtil {
 
   static OpentoolfileConfig resolve(OpentoolfileConfig rawConfig) {
     Map<String, String> resolvedArgs = rawConfig.build.args;
-    Map<String, String> resolvedEnvs = rawConfig.run.envs.map((k, v) => MapEntry(k, _expand(v, resolvedArgs, {})),);
-    List<String> resolvedRuns = rawConfig.build.runs.map((v)=>_expand(v, resolvedArgs, resolvedEnvs)).toList();
-    List<String> resolvedCmds = rawConfig.run.cmds.map((v)=>_expand(v, resolvedArgs, resolvedEnvs)).toList();
+    Map<String, String> resolvedEnvs = rawConfig.run.envs.map(
+      (k, v) => MapEntry(k, _expand(v, resolvedArgs, {})),
+    );
+    List<String> resolvedRuns = rawConfig.build.runs
+        .map((v) => _expand(v, resolvedArgs, resolvedEnvs))
+        .toList();
+    List<String> resolvedCmds = rawConfig.run.cmds
+        .map((v) => _expand(v, resolvedArgs, resolvedEnvs))
+        .toList();
 
-    String workdir =_expand(rawConfig.run.workdir, resolvedArgs, resolvedEnvs);
-    String entrypoint = _expand(rawConfig.run.entrypoint, resolvedArgs, resolvedEnvs);
+    String workdir = _expand(rawConfig.run.workdir, resolvedArgs, resolvedEnvs);
+    String entrypoint = _expand(
+      rawConfig.run.entrypoint,
+      resolvedArgs,
+      resolvedEnvs,
+    );
 
     return OpentoolfileConfig(
       name: rawConfig.name,
       os: rawConfig.os,
       cpuArch: rawConfig.cpuArch,
-      build: OpenToolBuild(
-        args: resolvedArgs,
-        runs: resolvedRuns,
-      ),
+      build: OpenToolBuild(args: resolvedArgs, runs: resolvedRuns),
       run: OpenToolRun(
         envs: resolvedEnvs,
         workdir: workdir,
@@ -66,7 +77,11 @@ class OpentoolfileConfigUtil {
     );
   }
 
-  static String _expand(String value, Map<String, String> args, Map<String, String> envs) {
+  static String _expand(
+    String value,
+    Map<String, String> args,
+    Map<String, String> envs,
+  ) {
     final regex = RegExp(r'\$[A-Za-z_][A-Za-z0-9_]*');
     return value.replaceAllMapped(regex, (m) {
       final key = m[0]!.substring(1);
@@ -93,7 +108,8 @@ class OpentoolfileConfig {
     required this.run,
   });
 
-  factory OpentoolfileConfig.fromJson(Map<String, dynamic> json) => _$OpentoolfileConfigFromJson(json);
+  factory OpentoolfileConfig.fromJson(Map<String, dynamic> json) =>
+      _$OpentoolfileConfigFromJson(json);
 
   Map<String, dynamic> toJson() => _$OpentoolfileConfigToJson(this);
 }
@@ -102,12 +118,10 @@ class OpentoolfileConfig {
 class OpenToolBuild {
   Map<String, String> args;
   List<String> runs;
-  OpenToolBuild({
-    this.args = const {},
-    this.runs = const [],
-  });
+  OpenToolBuild({this.args = const {}, this.runs = const []});
 
-  factory OpenToolBuild.fromJson(Map<String, dynamic> json) => _$OpenToolBuildFromJson(json);
+  factory OpenToolBuild.fromJson(Map<String, dynamic> json) =>
+      _$OpenToolBuildFromJson(json);
 
   Map<String, dynamic> toJson() => _$OpenToolBuildToJson(this);
 }
@@ -125,7 +139,8 @@ class OpenToolRun {
     this.cmds = const [],
   });
 
-  factory OpenToolRun.fromJson(Map<String, dynamic> json) => _$OpenToolRunFromJson(json);
+  factory OpenToolRun.fromJson(Map<String, dynamic> json) =>
+      _$OpenToolRunFromJson(json);
 
   Map<String, dynamic> toJson() => _$OpenToolRunToJson(this);
 }
@@ -153,34 +168,29 @@ class OpenToolRun {
 //   Map<String, dynamic> toJson() => _$OpenToolServerMetadataToJson(this);
 // }
 
-@JsonSerializable(includeIfNull: false, explicitToJson:  true)
+@JsonSerializable(includeIfNull: false, explicitToJson: true)
 class OpenToolConfig {
   String? registry;
   String? username;
   HubAuth? auth;
 
-  OpenToolConfig({
-    this.registry,
-    this.username,
-    this.auth,
-  });
+  OpenToolConfig({this.registry, this.username, this.auth});
 
-  factory OpenToolConfig.fromJson(Map<String, dynamic> json) => _$OpenToolConfigFromJson(json);
+  factory OpenToolConfig.fromJson(Map<String, dynamic> json) =>
+      _$OpenToolConfigFromJson(json);
 
   Map<String, dynamic> toJson() => _$OpenToolConfigToJson(this);
 }
 
-@JsonSerializable(includeIfNull: false, explicitToJson:  true)
+@JsonSerializable(includeIfNull: false, explicitToJson: true)
 class HubAuth {
   final String repo;
   final String token;
 
-  HubAuth({
-    required this.repo,
-    required this.token,
-  });
+  HubAuth({required this.repo, required this.token});
 
-  factory HubAuth.fromJson(Map<String, dynamic> json) => _$HubAuthFromJson(json);
+  factory HubAuth.fromJson(Map<String, dynamic> json) =>
+      _$HubAuthFromJson(json);
 
   Map<String, dynamic> toJson() => _$HubAuthToJson(this);
 }
