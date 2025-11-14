@@ -11,7 +11,12 @@ Middleware exceptionHandler() {
         return await innerHandler(request);
       } catch (e, stack) {
         String url = request.url.toString();
-        logger.log(LogModule.http, "URL: $url", detail: e.toString(), level: Level.WARNING);
+        logger.log(
+          LogModule.http,
+          "URL: $url",
+          detail: 'error: ${e.toString()}\n$stack',
+          level: Level.WARNING,
+        );
         return Response.internalServerError(
           body: jsonEncode({'error': e.toString()}),
           headers: JSON_HEADERS,

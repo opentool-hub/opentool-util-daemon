@@ -156,7 +156,7 @@ Response mirrors `OpenToolServerDto` for the imported build.
 ### GET /tools/list?all=1
 Returns every tool entry. Omit `all` or set it to `0` to only receive running tools.
 
-### POST /tools/create?from=srv-1&hostType=local
+### POST /tools/create?serverId=srv-1&hostType=local
 Starts a tool from the selected server. SSE events deliver command output (`event:DATA`) or errors (`event:ERROR`). The daemon allocates a new port, API key, and workspace under `~/.opentool/tools/{toolId}`.
 
 ### POST /tools/{toolId}/call

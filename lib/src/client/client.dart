@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:opentool_dart/opentool_dart.dart';
 import 'package:opentool_daemon/opentool_daemon_server.dart';
+import '../utils/command_util.dart';
 import '../utils/sse_client.dart';
 
 class DaemonClient {
@@ -15,7 +17,10 @@ class DaemonClient {
   late SseClient serverSse;
   late SseClient toolSse;
 
-  DaemonClient({String host = HostType.LOCALHOST, int port = DAEMON_DEFAULT_PORT}) {
+  DaemonClient({
+    String host = HostType.LOCALHOST,
+    int port = DAEMON_DEFAULT_PORT,
+  }) {
     this.host = host;
     this.port = port;
     String baseUrl = '$protocol://${host}:${this.port}${prefix}';
@@ -253,7 +258,7 @@ class DaemonClient {
     if (all != null && all.isNotEmpty) {
       queryParameters = {'all': all};
     }
-    Response response = await serverDio.get(
+    Response response = await toolDio.get(
       '/list',
       queryParameters: queryParameters,
     );
@@ -265,44 +270,61 @@ class DaemonClient {
   }
 
   /// POST /tools/create
-  Future<void> runServer(
+  Future<CommandResultDto> runServer(
     String serverId,
     String? hostType, {
-    required void Function(CommandResultDto commandOutput) onData,
-    required void Function(CommandResultDto commandError) onError,
-    void Function(Object error, StackTrace stackTrace)? onStreamError,
+    int timeoutSeconds = -1,
   }) async {
-    Map<String, dynamic>? queryParameters;
-    if (hostType != null && hostType.isNotEmpty) {
-      queryParameters = {'serverId': serverId, 'hostType': hostType};
+    final Map<String, dynamic> queryParameters = {
+      'serverId': serverId,
+      if (hostType != null && hostType.isNotEmpty) 'hostType': hostType,
+      if (timeoutSeconds >= 0) 'timeout': '$timeoutSeconds',
+    };
+    final completer = Completer<CommandResultDto>();
+    StreamSubscription<String>? subscription;
+    void completeWithError(Object error, [StackTrace? stack]) {
+      if (!completer.isCompleted) {
+        completer.completeError(error, stack ?? StackTrace.current);
+      }
     }
+
     try {
       Stream<String> sseStream = await toolSse.request(
         '/create',
         queryParameters: queryParameters,
       );
-      void Function(String event, Map<String, dynamic> data) onEvent =
-          (String event, Map<String, dynamic> data) {
-            if (event == EventType.DATA) {
-              onData(CommandResultDto.fromJson(data));
-            } else if (event == EventType.DONE) {
-              onError(CommandResultDto.fromJson(data));
-            }
-          };
-      sseStream.listen(
-        (data) => SseClient.parse(data, onEvent),
-        onError: (error, stackTrace) {
-          onStreamError?.call(error, stackTrace);
-        },
+      void onEvent(String event, Map<String, dynamic> data) {
+        if (event == EventType.DATA && !completer.isCompleted) {
+          final result = CommandResultDto.fromJson(data);
+          completer.complete(result);
+          subscription?.cancel();
+        } else if (event == EventType.ERROR && !completer.isCompleted) {
+          final result = CommandResultDto.fromJson(data);
+          completeWithError(CommandException('runServer', result.error ?? ''));
+          subscription?.cancel();
+        }
+      }
+
+      subscription = sseStream.listen(
+        (chunk) => SseClient.parse(chunk, onEvent),
+        onError: completeWithError,
         cancelOnError: true,
+        onDone: () {
+          if (!completer.isCompleted) {
+            completeWithError(
+              CommandException(
+                'runServer',
+                'Connection closed before response',
+              ),
+            );
+          }
+        },
       );
     } catch (error, stackTrace) {
-      if (onStreamError != null) {
-        onStreamError(error, stackTrace);
-        return;
-      }
-      rethrow;
+      completeWithError(error, stackTrace);
     }
+
+    return completer.future;
   }
 
   /// POST /tools/{toolId}/start
@@ -340,19 +362,19 @@ class DaemonClient {
 
   /// POST /tools/{toolId}/stop
   Future<ToolIdDto> stopTool(String toolId) async {
-    Response response = await manageDio.post('/${toolId}/stop');
+    Response response = await toolDio.post('/${toolId}/stop');
     return ToolIdDto.fromJson(response.data);
   }
 
   /// DELETE /tools/{toolId}
   Future<ToolIdDto> deleteTool(String toolId) async {
-    Response response = await manageDio.post('/${toolId}');
+    Response response = await toolDio.delete('/${toolId}');
     return ToolIdDto.fromJson(response.data);
   }
 
   /// POST /tools/{toolId}/call
   Future<ToolReturn> callTool(String toolId, FunctionCall functionCall) async {
-    Response response = await manageDio.post(
+    Response response = await toolDio.post(
       '/${toolId}/call',
       data: jsonEncode(functionCall.toJson()),
     );

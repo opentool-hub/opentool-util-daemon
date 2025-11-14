@@ -3,7 +3,7 @@ import 'package:path/path.dart' as p;
 
 class UserHomeDirectoryNotFoundException implements Exception {
   int code = 404;
-  late String message ;
+  late String message;
 
   UserHomeDirectoryNotFoundException() {
     this.message = 'User Home Directory NOT found';
@@ -17,7 +17,7 @@ class UserHomeDirectoryNotFoundException implements Exception {
 
 class FileNotFoundException implements Exception {
   int code = 404;
-  late String message ;
+  late String message;
 
   FileNotFoundException(String filePath) {
     this.message = 'File NOT found: $filePath';
@@ -30,7 +30,6 @@ class FileNotFoundException implements Exception {
 }
 
 class DirectoryUtil {
-
   static String getBaseDir() {
     // Debug mode check using assert
     String? debugDir;
@@ -80,18 +79,24 @@ class DirectoryUtil {
     return Directory(filePath).parent.path;
   }
 
-  static Future<void> copyDirectory(Directory source, Directory destination) async {
+  static Future<void> copyDirectory(
+    Directory source,
+    Directory destination,
+  ) async {
     if (!await destination.exists()) {
       await destination.create(recursive: true);
     }
 
     await for (var entity in source.list(recursive: false)) {
       if (entity is Directory) {
-        final newDir = Directory(p.join(destination.path, p.basename(entity.path)));
+        final newDir = Directory(
+          p.join(destination.path, p.basename(entity.path)),
+        );
         await copyDirectory(entity, newDir);
       } else if (entity is File) {
         final newFile = File(p.join(destination.path, p.basename(entity.path)));
-        await newFile.writeAsBytes(await entity.readAsBytes());
+        await newFile.parent.create(recursive: true);
+        await entity.copy(newFile.path);
       }
     }
   }
@@ -103,7 +108,10 @@ class DirectoryUtil {
     }
   }
 
-  static Future<void> copyAndRenameFile(String sourcePath, String targetPath) async {
+  static Future<void> copyAndRenameFile(
+    String sourcePath,
+    String targetPath,
+  ) async {
     final sourceFile = File(sourcePath);
     final targetFile = File(targetPath);
 

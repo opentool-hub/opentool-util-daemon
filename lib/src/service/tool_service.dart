@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:logging/logging.dart';
 import 'package:opentool_dart/opentool_dart.dart';
+import 'package:path/path.dart' as p;
 import '../utils/directory_util.dart';
 import '../utils/json_file_util.dart';
 import '../utils/zip_util.dart';
@@ -46,7 +48,7 @@ class ToolService {
     return ToolModel.fromDao(toolDao);
   }
 
-  Future<void> runServer(
+  Future<ToolModel> runServer(
     ServerModel server,
     String hostType, {
     void Function(String script, String output)? onStdout,
@@ -81,10 +83,13 @@ class ToolService {
     Map<String, dynamic> opentoolFileJson = await JsonFileUtil.readFromFile(
       opentoolFileJsonPath,
     );
-    OpentoolfileConfig config = OpentoolfileConfig.fromJson(opentoolFileJson);
-    String workdir = config.run.workdir;
-    String entrypoint = config.run.entrypoint;
-    List<String> cmds = config.run.cmds;
+    OpentoolfileConfig rawConfig = OpentoolfileConfig.fromJson(
+      opentoolFileJson,
+    );
+    OpentoolfileConfig config = OpentoolfileConfigUtil.resolve(rawConfig);
+    String workdir = _resolveWorkdir(toolFolder, config.run.workdir);
+    String entrypoint = _resolveEntrypoint(workdir, config.run.entrypoint);
+    List<String> cmds = List<String>.from(config.run.cmds);
 
     String tag = server.tag;
     cmds.add("--$CLI_ARGUMENT_TAG $tag");
@@ -92,22 +97,28 @@ class ToolService {
     String host = hostType;
     cmds.add("--$CLI_ARGUMENT_HOST $host");
 
-    int lastPort = (await _cacheToolStorage.list()).last.port;
-    int port = lastPort + 1;
+    final List<ToolDao> existingTools = await _cacheToolStorage.list();
+    int port = TOOL_DEFAULT_PORT;
+    if (existingTools.isNotEmpty) {
+      existingTools.sort((a, b) => a.port.compareTo(b.port));
+      port = existingTools.last.port + 1;
+    }
     cmds.add("--$CLI_ARGUMENT_PORT $port");
 
     String apiKey = uniqueId(shorter: false);
     cmds.add("--$CLI_ARGUMENT_APIKEYS $apiKey");
 
     unawaited(
-      CommandUtil.runStream(
-        workdir,
-        entrypoint,
-        cmds,
-        onStdout: onStdout,
-        onStderr: onStderr,
-        printStd: printStd,
-      ),
+      _ensureExecutable(entrypoint, workdir).then((_) {
+        return CommandUtil.runStream(
+          workdir,
+          entrypoint,
+          cmds,
+          onStdout: onStdout,
+          onStderr: onStderr,
+          printStd: printStd,
+        );
+      }),
     );
 
     /// 3. add to storage
@@ -121,11 +132,13 @@ class ToolService {
       status: ToolStatusType.RUNNING,
     );
     await _cacheToolStorage.add(toolDao);
+    _registerClient(toolDao);
     logger.log(
       LogModule.tool,
       "runServer.result",
       detail: "toolId: $toolId, port: $port",
     );
+    return ToolModel.fromDao(toolDao);
   }
 
   Future<void> startTool(
@@ -144,10 +157,13 @@ class ToolService {
     Map<String, dynamic> opentoolFileJson = await JsonFileUtil.readFromFile(
       opentoolFileJsonPath,
     );
-    OpentoolfileConfig config = OpentoolfileConfig.fromJson(opentoolFileJson);
-    String workdir = config.run.workdir;
-    String entrypoint = config.run.entrypoint;
-    List<String> cmds = config.run.cmds;
+    OpentoolfileConfig rawConfig = OpentoolfileConfig.fromJson(
+      opentoolFileJson,
+    );
+    OpentoolfileConfig config = OpentoolfileConfigUtil.resolve(rawConfig);
+    String workdir = _resolveWorkdir(toolFolder, config.run.workdir);
+    String entrypoint = _resolveEntrypoint(workdir, config.run.entrypoint);
+    List<String> cmds = List<String>.from(config.run.cmds);
 
     String tag = tool.tag;
     cmds.add("--$CLI_ARGUMENT_TAG $tag");
@@ -163,14 +179,16 @@ class ToolService {
     cmds.add("--$CLI_ARGUMENT_APIKEYS $apiKey");
 
     unawaited(
-      CommandUtil.runStream(
-        workdir,
-        entrypoint,
-        cmds,
-        onStdout: onStdout,
-        onStderr: onStderr,
-        printStd: printStd,
-      ),
+      _ensureExecutable(entrypoint, workdir).then((_) {
+        return CommandUtil.runStream(
+          workdir,
+          entrypoint,
+          cmds,
+          onStdout: onStdout,
+          onStderr: onStderr,
+          printStd: printStd,
+        );
+      }),
     );
 
     /// 2. update to storage
@@ -184,6 +202,7 @@ class ToolService {
       status: ToolStatusType.RUNNING,
     );
     await _cacheToolStorage.update(toolDao);
+    _registerClient(toolDao);
     logger.log(
       LogModule.tool,
       "startTool.result",
@@ -194,6 +213,11 @@ class ToolService {
   Future<void> check(String toolId) async {
     await _checkThenRun(toolId, (client) async {
       Version version = await client.version();
+      logger.log(
+        LogModule.tool,
+        "check.version",
+        detail: "toolId: $toolId version: ${version.version}",
+      );
     });
   }
 
@@ -202,15 +226,38 @@ class ToolService {
     await _checkThenRun(toolId, (client) async {
       await client.stop();
     });
+    final toolDao = await _cacheToolStorage.get(toolId);
+    if (toolDao != null) {
+      toolDao.status = ToolStatusType.NOT_RUNNING;
+      await _cacheToolStorage.update(toolDao);
+    }
+    _clients.remove(toolId);
     logger.log(LogModule.tool, "stop.result", detail: "toolId: $toolId");
   }
 
   Future<void> delete(String toolId) async {
     logger.log(LogModule.tool, "delete.input", detail: "toolId: $toolId");
-    await _checkThenRun(toolId, (client) async {
-      await client.stop();
+    OpenToolClient? client = _clients.remove(toolId);
+    if (client != null) {
+      try {
+        await client.stop();
+      } catch (error) {
+        logger.log(
+          LogModule.tool,
+          "delete.stop.error",
+          detail: "toolId: $toolId, error: $error",
+          level: Level.WARNING,
+        );
+      }
+    }
+
+    ToolDao? toolDao = await _cacheToolStorage.get(toolId);
+    if (toolDao != null) {
       await _cacheToolStorage.remove(toolId);
-    });
+    }
+
+    final String toolFolder = p.join(OPENTOOL_PATH, TOOL_FOLDER, toolId);
+    await DirectoryUtil.deleteDirectory(toolFolder);
     logger.log(LogModule.tool, "delete.result", detail: "toolId: $toolId");
   }
 
@@ -282,27 +329,81 @@ class ToolService {
     Future<void> Function(OpenToolClient client) onRun,
   ) async {
     logger.log(LogModule.tool, "check.input", detail: "toolId: $toolId");
-    OpenToolClient? client = _clients[toolId];
     ToolDao? toolDao = await _cacheToolStorage.get(toolId);
-    if (client != null) {
-      try {
-        await onRun(client);
-      } catch (e) {
-        if (toolDao != null) {
-          toolDao.status = ToolStatusType.NOT_RUNNING;
-          await _cacheToolStorage.update(toolDao);
-        }
-        logger.log(
-          LogModule.tool,
-          "check.error",
-          detail: "toolId: $toolId, error: $e",
-        );
-        rethrow;
-      }
-      logger.log(LogModule.tool, "check.result", detail: "toolId: $toolId");
-    } else {
+    if (toolDao == null) {
       logger.log(LogModule.tool, "check.missing", detail: "toolId: $toolId");
       throw ToolNotFoundException(toolId);
+    }
+    OpenToolClient client = _clients[toolId] ?? _registerClient(toolDao);
+    try {
+      await onRun(client);
+    } catch (e) {
+      toolDao.status = ToolStatusType.NOT_RUNNING;
+      await _cacheToolStorage.update(toolDao);
+      logger.log(
+        LogModule.tool,
+        "check.error",
+        detail: "toolId: $toolId, error: $e",
+      );
+      rethrow;
+    }
+    logger.log(LogModule.tool, "check.result", detail: "toolId: $toolId");
+  }
+
+  OpenToolClient _registerClient(ToolDao toolDao) {
+    final client = _buildClient(toolDao);
+    _clients[toolDao.id] = client;
+    return client;
+  }
+
+  OpenToolClient _buildClient(ToolDao toolDao) {
+    final String resolvedHost =
+        toolDao.host.isEmpty || toolDao.host == HostType.ANY
+        ? HostType.LOCALHOST
+        : toolDao.host;
+    return OpenToolClient(
+      toolHost: resolvedHost,
+      toolPort: toolDao.port,
+      toolApiKey: toolDao.apiKey,
+    );
+  }
+
+  String _resolveWorkdir(String baseFolder, String configuredWorkdir) {
+    if (configuredWorkdir.isEmpty || configuredWorkdir == '.') {
+      return baseFolder;
+    }
+    final String candidate = p.normalize(p.join(baseFolder, configuredWorkdir));
+    if (Directory(candidate).existsSync()) {
+      return candidate;
+    }
+    return baseFolder;
+  }
+
+  String _resolveEntrypoint(String workdir, String entrypoint) {
+    if (entrypoint.isEmpty) return entrypoint;
+    if (entrypoint.startsWith('/') ||
+        entrypoint.startsWith('./') ||
+        entrypoint.startsWith('../')) {
+      return entrypoint;
+    }
+    final String candidatePath = p.join(workdir, entrypoint);
+    if (File(candidatePath).existsSync()) {
+      return './$entrypoint';
+    }
+    return entrypoint;
+  }
+
+  Future<void> _ensureExecutable(String entrypoint, String workdir) async {
+    if (entrypoint.isEmpty) return;
+    if (!entrypoint.startsWith('./')) return;
+    final String executableName = entrypoint.substring(2);
+    final String absolutePath = p.join(workdir, executableName);
+    final File executable = File(absolutePath);
+    if (!await executable.exists()) return;
+    final FileStat stat = await executable.stat();
+    final bool isExecutable = stat.mode & 0x49 != 0;
+    if (!isExecutable) {
+      await Process.run('chmod', ['+x', absolutePath]);
     }
   }
 }

@@ -121,13 +121,25 @@ class FakeToolService implements ToolService {
   }
 
   @override
-  Future<void> runServer(
+  Future<ToolModel> runServer(
     ServerModel server,
     String hostType, {
     void Function(String script, String output)? onStdout,
     void Function(String script, String error)? onStderr,
     bool printStd = true,
-  }) async {}
+  }) async {
+    final tool = ToolModel(
+      id: 'tool-${_tools.length + 1}',
+      alias: 'alias-${_tools.length + 1}',
+      tag: server.tag,
+      host: hostType,
+      port: 9000 + _tools.length,
+      apiKey: 'key-${_tools.length + 1}',
+      status: ToolStatusType.RUNNING,
+    );
+    _tools[tool.id] = tool;
+    return tool;
+  }
 
   @override
   Future<void> startTool(

@@ -162,7 +162,7 @@ SSE 事件示例：
 ### GET /tools/list?all=1
 返回全部条目；省略 `all` 或设为 `0` 时仅返回运行中的工具。
 
-### POST /tools/create?from=srv-1&hostType=local
+### POST /tools/create?serverId=srv-1&hostType=local
 基于指定 Server 启动 Tool。SSE `event:DATA` 为标准输出，`event:ERROR` 为标准错误。守护进程会在 `~/.opentool/tools/{toolId}` 中创建工作目录，并分配端口与 API Key。
 
 ### POST /tools/{toolId}/call

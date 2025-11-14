@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:opentool_dart/opentool_dart.dart';
+import 'package:path/path.dart' as p;
 import '../constants.dart';
 import '../storage/cache_storage.dart';
 import '../storage/dao.dart';
@@ -84,9 +85,13 @@ class ServerService {
     Directory tempDirectory = await Directory.systemTemp.createTemp(
       'OpentoolServer_$internalId',
     );
+    final String relativeWorkdir = config.run.workdir;
     String workDirectory =
-        "$currFolder${Platform.pathSeparator}${config.run.workdir}";
-    await DirectoryUtil.copyDirectory(Directory(workDirectory), tempDirectory);
+        "$currFolder${Platform.pathSeparator}$relativeWorkdir";
+    Directory targetWorkdir = Directory(
+      p.join(tempDirectory.path, relativeWorkdir),
+    );
+    await DirectoryUtil.copyDirectory(Directory(workDirectory), targetWorkdir);
 
     /// 4. save Opentoolfile config in temp folder
     await JsonFileUtil.saveToFile(

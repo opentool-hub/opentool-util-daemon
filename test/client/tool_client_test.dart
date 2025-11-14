@@ -25,7 +25,7 @@ void main() {
       });
 
       final client = DaemonClient();
-      client.serverDio = stub;
+      client.toolDio = stub;
 
       final tools = await client.listTool('1');
 
@@ -69,7 +69,7 @@ void main() {
       });
 
       final client = DaemonClient();
-      client.manageDio = stub;
+      client.toolDio = stub;
 
       final dto = await client.stopTool('tool-1');
 
