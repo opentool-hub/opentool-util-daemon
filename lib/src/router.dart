@@ -11,7 +11,7 @@ Router toolRouter = Router();
 void manageRoutes(ManageController manageController) {
   manageRouter.get('/version', manageController.getVersion);
   manageRouter.post('/opentool-hub/login', manageController.login);
-  manageRouter.get('/opentool-hub/user', manageController.logout);
+  manageRouter.get('/opentool-hub/user', manageController.getUserInfo);
   manageRouter.post('/opentool-hub/logout', manageController.logout);
 }
 
@@ -19,21 +19,23 @@ void manageRoutes(ManageController manageController) {
 void serverRoutes(ServerController serverController) {
   serverRouter.get('/list', serverController.listServers);
   serverRouter.post('/build', serverController.buildServer);
-  serverRouter.delete('/{server_id}', serverController.deleteServer);
-  serverRouter.post('/{server_id}/tag', serverController.tagServer);
-  serverRouter.post('/{server_id}/push', serverController.pushServer);
-  serverRouter.get('/{serverId}/export', serverController.exportServer);
+  serverRouter.delete('/<serverId>', serverController.deleteServer);
+  serverRouter.post('/<serverId>/tag', serverController.tagServer);
+  serverRouter.post('/<serverId>/push', serverController.pushServer);
+  serverRouter.get('/<serverId>/export', serverController.exportServer);
   serverRouter.post('/import', serverController.importServer);
+  serverRouter.post('/<serverId>/alias', serverController.setAlias);
 }
 
 /// /opentool-daemon/tools
 void toolRoutes(ToolController toolController) {
   toolRouter.get('/list', toolController.listTools);
   toolRouter.post('/create', toolController.runServer);
-  toolRouter.post('/{toolId}/start', toolController.startTool);
-  toolRouter.post('/{toolId}/stop', toolController.stopTool);
-  toolRouter.delete('/{toolId}', toolController.deleteTool);
-  toolRouter.post('/{toolId}/call', toolController.callTool);
-  toolRouter.post('/{toolId}/streamCall', toolController.streamCallTool);
-  toolRouter.get('/{toolId}/load', toolController.loadTool);
+  toolRouter.post('/<toolId>/start', toolController.startTool);
+  toolRouter.post('/<toolId>/stop', toolController.stopTool);
+  toolRouter.delete('/<toolId>', toolController.deleteTool);
+  toolRouter.post('/<toolId>/call', toolController.callTool);
+  toolRouter.post('/<toolId>/streamCall', toolController.streamCallTool);
+  toolRouter.get('/<toolId>/load', toolController.loadTool);
+  toolRouter.post('/<toolId>/alias', toolController.setAlias);
 }

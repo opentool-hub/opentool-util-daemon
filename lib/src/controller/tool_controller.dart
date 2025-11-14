@@ -49,7 +49,7 @@ class ToolController {
     return Response.ok(streamController.stream, headers: STREAM_HEADERS, context: {'shelf.io.buffer_output': false});
   }
 
-  /// POST /tools/{toolId}/start
+  /// POST /tools/<toolId>/start
   Future<Response> startTool(Request request, String toolId) async {
     final queryParams = request.url.queryParameters;
     logger.log(LogModule.http, "startTool.input", detail: "toolId: $toolId, queryParams: ${jsonEncode(queryParams)}", level: Level.FINE);
@@ -69,7 +69,7 @@ class ToolController {
     return Response.ok(streamController.stream, headers: STREAM_HEADERS, context: {'shelf.io.buffer_output': false});
   }
 
-  /// POST /tools/{toolId}/stop
+  /// POST /tools/<toolId>/stop
   Future<Response> stopTool(Request request, String toolId) async {
     logger.log(LogModule.http, "stopTool.input", detail: "toolId: $toolId", level: Level.FINE);
     await toolService.stop(toolId);
@@ -78,7 +78,7 @@ class ToolController {
     return Response.ok(jsonEncode(toolIdDto.toJson()), headers: JSON_HEADERS,);
   }
 
-  /// DELETE /tools/{toolId}
+  /// DELETE /tools/<toolId>
   Future<Response> deleteTool(Request request, String toolId) async {
     logger.log(LogModule.http, "deleteTool.input", detail: "toolId: $toolId", level: Level.FINE);
     await toolService.delete(toolId);
@@ -87,7 +87,7 @@ class ToolController {
     return Response.ok(jsonEncode(toolIdDto.toJson()), headers: JSON_HEADERS,);
   }
 
-  /// POST /tools/{toolId}/call
+  /// POST /tools/<toolId>/call
   Future<Response> callTool(Request request, String toolId) async {
     final payload = await request.readAsString();
     logger.log(LogModule.http, "callTool.input", detail: "toolId: $toolId, body: $payload", level: Level.FINE);
@@ -98,7 +98,7 @@ class ToolController {
     return Response.ok(jsonEncode(toolReturn.toJson()), headers: JSON_HEADERS,);
   }
 
-  /// POST /tools/{toolId}/streamCall
+  /// POST /tools/<toolId>/streamCall
   Future<Response> streamCallTool(Request request, String toolId) async {
     final payload = await request.readAsString();
     logger.log(LogModule.http, "streamCallTool.input", detail: "toolId: $toolId, body: $payload", level: Level.FINE);
@@ -112,7 +112,7 @@ class ToolController {
     return Response.ok(streamController.stream, headers: STREAM_HEADERS, context: {'shelf.io.buffer_output': false});
   }
 
-  /// GET /tools/{toolId}/load
+  /// GET /tools/<toolId>/load
   Future<Response> loadTool(Request request, String toolId) async {
     logger.log(LogModule.http, "loadTool.input", detail: "toolId: $toolId");
     OpenTool? openTool = await toolService.load(toolId);
@@ -124,7 +124,7 @@ class ToolController {
     return Response.ok(jsonEncode(responseBody), headers: JSON_HEADERS,);
   }
 
-  /// POST /tools/{toolId}/alias?alias=<target_alias>
+  /// POST /tools/<toolId>/alias?alias=<target_alias>
   Future<Response> setAlias(Request request, String toolId) async {
     final query = request.url.queryParameters;
     logger.log(LogModule.http, "loadTool.input", detail: "toolId: $toolId, queryParams: $query", level: Level.FINE);

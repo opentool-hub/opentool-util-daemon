@@ -49,7 +49,7 @@ class ServerController {
     return Response.ok(streamController.stream, headers: STREAM_HEADERS, context: {'shelf.io.buffer_output': false});
   }
 
-  /// DELETE /servers/{server_id}
+  /// DELETE /servers/<serverId>
   Future<Response> deleteServer(Request request, String serverId) async {
     logger.log(LogModule.http, "deleteServer.input", detail: "serverId: $serverId", level: Level.FINE);
     await serverService.delete(serverId);
@@ -58,7 +58,7 @@ class ServerController {
     return Response.ok(jsonEncode(serverIdDto.toJson()), headers: JSON_HEADERS);
   }
 
-  /// POST /servers/{server_id}/tag?tag=<target_tag>
+  /// POST /servers/<serverId>/tag?tag=<target_tag>
   Future<Response> tagServer(Request request, String serverId) async {
     final query = request.url.queryParameters;
     logger.log(LogModule.http, "tagServer.input", detail: "queryParams: ${jsonEncode(query)}", level: Level.FINE);
@@ -98,7 +98,7 @@ class ServerController {
     return Response.ok(streamController.stream, headers: STREAM_HEADERS, context: {'shelf.io.buffer_output': false});
   }
 
-  /// POST /servers/{serverId}/push
+  /// POST /servers/<serverId>/push
   Future<Response> pushServer(Request request, String serverId) async {
     logger.log(LogModule.http, "pushServer.input", detail: "serverId: $serverId", level: Level.FINE);
     String otsFilePath = await serverService.beforePush(serverId);
@@ -124,7 +124,7 @@ class ServerController {
     return Response.ok(streamController.stream, headers: STREAM_HEADERS, context: {'shelf.io.buffer_output': false});
   }
 
-  /// GET /servers/{serverId}/export
+  /// GET /servers/<serverId>/export
   Future<Response> exportServer(Request request, String serverId) async {
     final payload = await request.readAsString();
     logger.log(LogModule.http, "exportServer.input", detail: "serverId: $serverId, body: $payload", level: Level.FINE);
@@ -148,7 +148,7 @@ class ServerController {
     return Response.ok(jsonEncode(serverDto.toJson()), headers: JSON_HEADERS);
   }
 
-  /// POST /servers/{serverId}/alias?alias=<target_alias>
+  /// POST /servers/<serverId>/alias?alias=<target_alias>
   Future<Response> setAlias(Request request, String serverId) async {
     final query = request.url.queryParameters;
     logger.log(LogModule.http, "setAlias.input", detail: "queryParams: ${jsonEncode(query)}", level: Level.FINE);

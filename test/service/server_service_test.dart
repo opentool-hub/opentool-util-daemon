@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:opentool_daemon/src/constants.dart';
 import 'package:opentool_daemon/src/service/exception.dart';
 import 'package:opentool_daemon/src/service/server_service.dart';
 import 'package:opentool_daemon/src/storage/dao.dart';
@@ -91,5 +93,53 @@ void main() {
       expect(serversAfter.length, equals(serversBefore.length + 1));
       expect(serversAfter.where((s) => s.tag == 'beta'), isNotEmpty);
     });
+
+    test(
+      'removeServersByNameAndTagForTest drops duplicates and artifacts',
+      () async {
+        final keepServer = ServerDao(
+          id: 'srv-keep',
+          alias: 'keep',
+          registry: 'hub.local',
+          repo: 'org/project',
+          name: 'demo-server',
+          tag: 'latest',
+          internalId: 'int-keep',
+        );
+        final duplicate = ServerDao(
+          id: 'srv-old',
+          alias: 'old',
+          registry: 'hub.local',
+          repo: 'org/project',
+          name: 'demo-server',
+          tag: 'latest',
+          internalId: 'int-old',
+        );
+        hiveServerStorage.seed([keepServer, duplicate]);
+        internalStorage.seed([
+          InternalServerDao(id: 'int-keep', file: '/tmp/keep.ots'),
+          InternalServerDao(id: 'int-old', file: '/tmp/old.ots'),
+        ]);
+
+        final duplicateFile = File(
+          '$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}${duplicate.name}-${duplicate.internalId}.ots',
+        );
+        await duplicateFile.create(recursive: true);
+
+        final service = ServerService(hiveServerStorage, internalStorage);
+        await service.list(); // warm cache
+
+        await service.removeServersByNameAndTagForTest(
+          'demo-server',
+          'latest',
+          excludeServerId: 'srv-keep',
+        );
+
+        final servers = await service.list();
+        expect(servers.where((s) => s.tag == 'latest'), hasLength(1));
+        expect(await duplicateFile.exists(), isFalse);
+        expect(await internalStorage.get('int-old'), isNull);
+      },
+    );
   });
 }

@@ -106,11 +106,11 @@ class ServerService {
       file: otsFilePath,
     );
     await _internalServerStorage.add(serverDao);
-    String tagId = uniqueId();
+    String serverId = uniqueId();
 
     ServerDao tagDao = ServerDao(
-      id: tagId,
-      alias: tagId,
+      id: serverId,
+      alias: serverId,
       registry: NULL_REGISTRY,
       repo: NULL_REPO,
       name: name,
@@ -119,12 +119,18 @@ class ServerService {
     );
     await _cacheServerStorage.add(tagDao);
 
+    await _removeServersByNameAndTag(
+      name,
+      tag ?? NULL_TAG,
+      excludeServerId: serverId,
+    );
+
     /// 7. remove temp folder
     DirectoryUtil.deleteDirectory(tempDirectory.path);
     logger.log(
       LogModule.server,
       "build.result",
-      detail: "name: $name, tag: ${tag ?? NULL_TAG}, tagId: $tagId",
+      detail: "name: $name, tag: ${tag ?? NULL_TAG}, serverId: $serverId",
     );
   }
 
@@ -144,7 +150,7 @@ class ServerService {
     );
     if (!isInternalServerUsed) {
       String otsFilePath =
-          "$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}${serverDao.name}-$serverId.ots";
+          "$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}${serverDao.name}-${serverDao.internalId}.ots";
       await DirectoryUtil.deleteFile(otsFilePath);
       await _internalServerStorage.remove(serverDao.internalId);
     }
@@ -404,6 +410,48 @@ class ServerService {
       LogModule.server,
       "setAlias.result",
       detail: "serverId: $serverId, alias: $newName",
+    );
+  }
+
+  Future<void> _removeServersByNameAndTag(
+    String name,
+    String tag, {
+    String? excludeServerId,
+  }) async {
+    final servers = await _cacheServerStorage.list();
+    final duplicates = servers
+        .where(
+          (dao) =>
+              dao.name == name && dao.tag == tag && dao.id != excludeServerId,
+        )
+        .toList();
+
+    for (final serverDao in duplicates) {
+      await _cacheServerStorage.remove(serverDao.id);
+      final stillUsed = await _checkInternalIdReference(serverDao.internalId);
+      if (!stillUsed) {
+        final otsFilePath =
+            "$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}${serverDao.name}-${serverDao.internalId}.ots";
+        await DirectoryUtil.deleteFile(otsFilePath);
+        await _internalServerStorage.remove(serverDao.internalId);
+      }
+      logger.log(
+        LogModule.server,
+        "dedupe.removed",
+        detail: "serverId: ${serverDao.id}, tag: $tag",
+      );
+    }
+  }
+
+  Future<void> removeServersByNameAndTagForTest(
+    String name,
+    String tag, {
+    String? excludeServerId,
+  }) async {
+    await _removeServersByNameAndTag(
+      name,
+      tag,
+      excludeServerId: excludeServerId,
     );
   }
 

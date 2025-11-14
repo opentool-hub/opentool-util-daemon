@@ -74,6 +74,13 @@ class FakeServerService implements ServerService {
     final server = await get(serverId);
     server.alias = newName;
   }
+
+  @override
+  Future<void> removeServersByNameAndTagForTest(
+    String name,
+    String tag, {
+    String? excludeServerId,
+  }) async {}
 }
 
 class FakeToolService implements ToolService {
