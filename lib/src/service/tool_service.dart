@@ -267,9 +267,9 @@ class ToolService {
       "call.input",
       detail: "toolId: $toolId, function: ${functionCall.name}",
     );
-    ToolReturn? toolReturn;
-    await _checkThenRun(toolId, (client) async {
-      toolReturn = await client.call(functionCall);
+    ToolReturn? toolReturn = await _checkThenRun<ToolReturn?>(toolId, (client) async {
+      ToolReturn? toolReturn = await client.call(functionCall);
+      return toolReturn;
     });
     logger.log(LogModule.tool, "call.result", detail: "toolId: $toolId");
     return toolReturn ??
