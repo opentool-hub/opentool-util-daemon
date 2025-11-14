@@ -22,36 +22,42 @@ dart run bin/opentool_daemon.dart --config bin/config.json
 
 The daemon will persist metadata under `~/.opentool` (servers, tools, config) and write logs to `log/daemon.log`.
 
+### Configuration
+
+- `bin/config.json` is optional. If the file is missing or only contains `null` fields the daemon falls back to the defaults (`host: 127.0.0.1`, `port: 19627`, `prefix: /opentool-daemon`, `log.level: INFO`).
+- Any field you provide overrides the default while other properties stay untouched; e.g. `{ "server": { "port": 20000 } }` keeps the host/prefix unchanged.
+- The daemon always injects the `pubspec.yaml` version into the in-memory config, so you rarely need to set `version` manually.
+
 ---
 
 ## API Overview
 
 All paths below are relative to the base prefix `/opentool-daemon`.
 
-| Group   | Method | Path                              | Description |
-|---------|--------|-----------------------------------|-------------|
-| Manage  | GET    | `/version`                        | Health check and daemon version |
-| Manage  | POST   | `/opentool-hub/login`             | Authenticate with an OpenTool Hub registry |
-| Manage  | GET    | `/opentool-hub/user`              | Return cached Hub user info |
-| Manage  | POST   | `/opentool-hub/logout`            | Clear stored Hub credentials |
-| Server  | GET    | `/servers/list`                   | List cached OpenTool servers |
-| Server  | POST   | `/servers/build`                  | Build a server from an Opentoolfile (SSE stream) |
-| Server  | POST   | `/servers/pull`                   | Pull a server from the Hub into a temp `.ots` (SSE stream) |
-| Server  | DELETE | `/servers/{serverId}`             | Delete a server record |
-| Server  | POST   | `/servers/{serverId}/tag`         | Add or reuse a tag for an existing server |
-| Server  | POST   | `/servers/{serverId}/push`        | Push a local server artifact to the Hub (SSE stream) |
-| Server  | GET    | `/servers/{serverId}/export`      | Copy an `.ots` to a destination folder |
-| Server  | POST   | `/servers/import`                 | Import an external `.ots` file |
-| Server  | POST   | `/servers/{serverId}/alias`       | Rename a server alias |
-| Tool    | GET    | `/tools/list`                     | List running tools (or `all` tools) |
-| Tool    | POST   | `/tools/create`                   | Run a tool from a server definition (SSE stream) |
-| Tool    | POST   | `/tools/{toolId}/start`           | Restart a previously created tool (SSE stream) |
-| Tool    | POST   | `/tools/{toolId}/stop`            | Stop a running tool |
-| Tool    | DELETE | `/tools/{toolId}`                 | Stop and remove a tool |
-| Tool    | POST   | `/tools/{toolId}/call`            | Call a tool function (JSON RPC) |
-| Tool    | POST   | `/tools/{toolId}/streamCall`      | Stream tool responses over SSE |
-| Tool    | GET    | `/tools/{toolId}/load`            | Return the OpenTool JSON spec |
-| Tool    | POST   | `/tools/{toolId}/alias`           | Rename a tool alias |
+| Group  | Method | Path                         | Description                                                |
+|--------|--------|------------------------------|------------------------------------------------------------|
+| Manage | GET    | `/version`                   | Health check and daemon version                            |
+| Manage | POST   | `/opentool-hub/login`        | Authenticate with an OpenTool Hub registry                 |
+| Manage | GET    | `/opentool-hub/user`         | Return cached Hub user info                                |
+| Manage | POST   | `/opentool-hub/logout`       | Clear stored Hub credentials                               |
+| Server | GET    | `/servers/list`              | List cached OpenTool servers                               |
+| Server | POST   | `/servers/build`             | Build a server from an Opentoolfile (SSE stream)           |
+| Server | POST   | `/servers/pull`              | Pull a server from the Hub into a temp `.ots` (SSE stream) |
+| Server | DELETE | `/servers/{serverId}`        | Delete a server record                                     |
+| Server | POST   | `/servers/{serverId}/tag`    | Add or reuse a tag for an existing server                  |
+| Server | POST   | `/servers/{serverId}/push`   | Push a local server artifact to the Hub (SSE stream)       |
+| Server | GET    | `/servers/{serverId}/export` | Copy an `.ots` to a destination folder                     |
+| Server | POST   | `/servers/import`            | Import an external `.ots` file                             |
+| Server | POST   | `/servers/{serverId}/alias`  | Rename a server alias                                      |
+| Tool   | GET    | `/tools/list`                | List running tools (or `all` tools)                        |
+| Tool   | POST   | `/tools/create`              | Run a tool from a server definition (SSE stream)           |
+| Tool   | POST   | `/tools/{toolId}/start`      | Restart a previously created tool (SSE stream)             |
+| Tool   | POST   | `/tools/{toolId}/stop`       | Stop a running tool                                        |
+| Tool   | DELETE | `/tools/{toolId}`            | Stop and remove a tool                                     |
+| Tool   | POST   | `/tools/{toolId}/call`       | Call a tool function (JSON RPC)                            |
+| Tool   | POST   | `/tools/{toolId}/streamCall` | Stream tool responses over SSE                             |
+| Tool   | GET    | `/tools/{toolId}/load`       | Return the OpenTool JSON spec                              |
+| Tool   | POST   | `/tools/{toolId}/alias`      | Rename a tool alias                                        |
 
 ### Notes on Streaming Endpoints
 

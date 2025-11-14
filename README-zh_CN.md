@@ -22,6 +22,12 @@ dart run bin/opentool_daemon.dart --config bin/config.json
 
 守护进程会把元数据写入 `~/.opentool`，日志输出到 `log/daemon.log`。
 
+### 配置
+
+- `bin/config.json` 不是必需文件；如果缺失或其中字段为 `null`，守护进程会使用默认值（`host: 127.0.0.1`、`port: 19627`、`prefix: /opentool-daemon`、`log.level: INFO`）。
+- 只需写入你想覆盖的字段即可，其余保持默认，例如 `{ "server": { "port": 20000 } }` 只会修改端口。
+- 运行时会自动读取 `pubspec.yaml` 的版本号填入内存配置，通常无需显式设置 `version`。
+
 ---
 
 ## 接口总览
