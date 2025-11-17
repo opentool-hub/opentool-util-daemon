@@ -12,6 +12,7 @@ import '../storage/hive_storage.dart';
 import '../storage/dao.dart';
 import '../utils/command_util.dart';
 import '../utils/logger.dart';
+import '../utils/network_util.dart';
 import 'config.dart';
 import 'exception.dart';
 import 'model.dart';
@@ -20,13 +21,16 @@ class ToolService {
   late CacheToolStorage _cacheToolStorage;
   Map<String, OpenToolClient> _clients = {};
   late final OpenToolClient Function(ToolDao toolDao) _clientFactory;
+  late final Future<int> Function(String host, int startPort) _portAllocator;
 
   ToolService(
     HiveToolStorage hive, {
     OpenToolClient Function(ToolDao toolDao)? clientFactory,
+    Future<int> Function(String host, int startPort)? portAllocator,
   }) {
     _cacheToolStorage = CacheToolStorage(hive);
     _clientFactory = clientFactory ?? _buildClient;
+    _portAllocator = portAllocator ?? findAvailablePort;
   }
 
   Future<void> refreshStatusesOnStartup() async {
@@ -125,11 +129,12 @@ class ToolService {
     cmds.add("--$CLI_ARGUMENT_HOST $host");
 
     final List<ToolDao> existingTools = await _cacheToolStorage.list();
-    int port = TOOL_DEFAULT_PORT;
+    int preferredPort = TOOL_DEFAULT_PORT;
     if (existingTools.isNotEmpty) {
       existingTools.sort((a, b) => a.port.compareTo(b.port));
-      port = existingTools.last.port + 1;
+      preferredPort = existingTools.last.port + 1;
     }
+    final int port = await _portAllocator(host, preferredPort);
     cmds.add("--$CLI_ARGUMENT_PORT $port");
 
     String apiKey = uniqueId(shorter: false);
@@ -198,8 +203,8 @@ class ToolService {
     String host = tool.host;
     cmds.add("--$CLI_ARGUMENT_HOST $host");
 
-    int lastPort = tool.port;
-    int port = lastPort + 1;
+    final int desiredPort = tool.port;
+    final int port = await _portAllocator(host, desiredPort);
     cmds.add("--$CLI_ARGUMENT_PORT $port");
 
     String apiKey = tool.apiKey;

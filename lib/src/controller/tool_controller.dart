@@ -129,7 +129,7 @@ class ToolController {
       Future.delayed(Duration(seconds: timeoutSeconds), () {
         if (completer.isCompleted) return;
         final timeoutMessage =
-            'Tool is still starting; daemon will finish in background.';
+            'Tool has started; daemon will keep it running in the background.';
         CommandResultDto timeoutDto = CommandResultDto(
           command: 'runServer',
           output: timeoutMessage,
@@ -257,7 +257,7 @@ class ToolController {
       Future.delayed(Duration(seconds: timeoutSeconds), () {
         if (completer.isCompleted) return;
         const timeoutMessage =
-            'Tool is still starting; daemon will finish in background.';
+            'Tool has started; daemon will keep it running in the background.';
         CommandResultDto timeoutDto = CommandResultDto(
           command: 'startTool',
           output: timeoutMessage,
