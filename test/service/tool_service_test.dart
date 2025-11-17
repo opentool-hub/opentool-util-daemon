@@ -2,6 +2,7 @@ import 'package:opentool_daemon/src/service/exception.dart';
 import 'package:opentool_daemon/src/service/model.dart';
 import 'package:opentool_daemon/src/service/tool_service.dart';
 import 'package:opentool_daemon/src/storage/dao.dart';
+import 'package:opentool_dart/opentool_dart.dart';
 import 'package:test/test.dart';
 import '../test_doubles.dart';
 
@@ -61,5 +62,38 @@ void main() {
         throwsA(isA<ToolNotFoundException>()),
       );
     });
+
+    test('refreshStatusesOnStartup marks unreachable tools as NOT_RUNNING',
+        () async {
+      service = ToolService(
+        hiveToolStorage,
+        clientFactory: (toolDao) => _TestOpenToolClient(
+          reachable: toolDao.id == 'tool-1',
+        ),
+      );
+
+      await service.refreshStatusesOnStartup();
+
+      final running = await hiveToolStorage.get('tool-1');
+      final stopped = await hiveToolStorage.get('tool-2');
+
+      expect(running!.status, equals(ToolStatusType.RUNNING));
+      expect(stopped!.status, equals(ToolStatusType.NOT_RUNNING));
+    });
   });
+}
+
+class _TestOpenToolClient extends OpenToolClient {
+  final bool reachable;
+
+  _TestOpenToolClient({required this.reachable})
+      : super(toolHost: '127.0.0.1', toolPort: 8080);
+
+  @override
+  Future<Version> version() async {
+    if (!reachable) {
+      throw Exception('connection refused');
+    }
+    return Version(version: '0.0.0');
+  }
 }

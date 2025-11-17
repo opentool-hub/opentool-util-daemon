@@ -358,6 +358,13 @@ class ToolController {
 
     StreamController<List<int>> streamController =
         StreamController<List<int>>();
+    bool isStreamClosed = false;
+
+    void closeStream() {
+      if (isStreamClosed) return;
+      isStreamClosed = true;
+      unawaited(streamController.close());
+    }
     toolService.streamCall(toolId, functionCall, (
       String event,
       ToolReturn toolReturn,
@@ -368,6 +375,9 @@ class ToolController {
         jsonEncode(toolReturn.toJson()),
         logMessage: "streamCallTool.push",
       );
+      if (event == EventType.DONE || event == EventType.ERROR) {
+        closeStream();
+      }
     });
     return Response.ok(
       streamController.stream,

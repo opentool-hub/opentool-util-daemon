@@ -19,9 +19,36 @@ import 'model.dart';
 class ToolService {
   late CacheToolStorage _cacheToolStorage;
   Map<String, OpenToolClient> _clients = {};
+  late final OpenToolClient Function(ToolDao toolDao) _clientFactory;
 
-  ToolService(HiveToolStorage hive) {
+  ToolService(
+    HiveToolStorage hive, {
+    OpenToolClient Function(ToolDao toolDao)? clientFactory,
+  }) {
     _cacheToolStorage = CacheToolStorage(hive);
+    _clientFactory = clientFactory ?? _buildClient;
+  }
+
+  Future<void> refreshStatusesOnStartup() async {
+    logger.log(LogModule.tool, "refreshStatusesOnStartup.start", detail: "initializing tool status cache");
+    final List<ToolDao> toolDaos = await _cacheToolStorage.list();
+    for (final toolDao in toolDaos) {
+      if (toolDao.status != ToolStatusType.RUNNING) continue;
+      try {
+        await _checkThenRun(toolDao.id, (client) async {
+          await client.version();
+        });
+      } catch (error, stackTrace) {
+        _clients.remove(toolDao.id);
+        logger.log(
+          LogModule.tool,
+          "refreshStatusesOnStartup.markNotRunning",
+          detail: "toolId: ${toolDao.id}, error: $error\n$stackTrace",
+          level: Level.WARNING,
+        );
+      }
+    }
+    logger.log(LogModule.tool, "refreshStatusesOnStartup.done", detail: "checked: ${toolDaos.length}");
   }
 
   Future<List<ToolModel>> list({bool all = false}) async {
@@ -350,7 +377,7 @@ class ToolService {
   }
 
   OpenToolClient _registerClient(ToolDao toolDao) {
-    final client = _buildClient(toolDao);
+    final client = _clientFactory(toolDao);
     _clients[toolDao.id] = client;
     return client;
   }

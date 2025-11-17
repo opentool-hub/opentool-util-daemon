@@ -172,6 +172,9 @@ class FakeToolService implements ToolService {
   ) async {}
 
   @override
+  Future<void> refreshStatusesOnStartup() async {}
+
+  @override
   Future<OpenTool?> load(String toolId) async => toolDefinitions[toolId];
 
   @override

@@ -36,6 +36,7 @@ class DaemonServer {
     ManageService manageService = ManageService(version);
     ServerService serverService = ServerService(hiveServerStorage, hiveInternalServerStorage);
     ToolService toolService  = ToolService(hiveToolStorage);
+    await toolService.refreshStatusesOnStartup();
 
     ManageController manageController = ManageController(manageService);
     ServerController serverController = ServerController(serverService, manageService);
