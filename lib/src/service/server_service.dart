@@ -122,6 +122,7 @@ class ServerService {
       tag: tag ?? NULL_TAG,
       internalId: internalId,
     );
+    await _cacheServerStorage.list();
     await _cacheServerStorage.add(tagDao);
 
     await _removeServersByNameAndTag(
@@ -345,7 +346,13 @@ class ServerService {
       tag: NULL_TAG,
       internalId: internalId,
     );
+    await _cacheServerStorage.list();
     await _cacheServerStorage.add(serverDao);
+    await _removeServersByNameAndTag(
+      serverDao.name,
+      serverDao.tag,
+      excludeServerId: serverId,
+    );
 
     ServerModel serverModel = ServerModel.fromDao(serverDao);
     logger.log(

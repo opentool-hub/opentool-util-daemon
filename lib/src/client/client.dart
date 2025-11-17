@@ -220,7 +220,7 @@ class DaemonClient {
   /// GET /servers/{serverId}/export
   Future<ServerIdDto> exportServer(String serverId, String targetPath) async {
     PathDto pathDto = PathDto(path: targetPath);
-    Response response = await serverDio.post(
+    Response response = await serverDio.get(
       '/$serverId/export',
       data: pathDto.toJson(),
     );

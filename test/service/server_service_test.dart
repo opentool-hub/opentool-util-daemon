@@ -1,8 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:opentool_daemon/src/constants.dart';
 import 'package:opentool_daemon/src/service/exception.dart';
+import 'package:opentool_daemon/src/service/config.dart';
 import 'package:opentool_daemon/src/service/server_service.dart';
 import 'package:opentool_daemon/src/storage/dao.dart';
+import 'package:opentool_daemon/src/utils/system_util.dart';
+import 'package:opentool_daemon/src/utils/zip_util.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import '../test_doubles.dart';
 
@@ -141,5 +146,97 @@ void main() {
         expect(await internalStorage.get('int-old'), isNull);
       },
     );
+
+    test('import overrides existing server with same name/tag', () async {
+      hiveServerStorage = StubHiveServerStorage();
+      internalStorage = StubHiveInternalServerStorage();
+      final existingServer = ServerDao(
+        id: 'srv-old',
+        alias: 'old',
+        registry: 'hub.local',
+        repo: 'org/project',
+        name: 'import-demo',
+        tag: NULL_TAG,
+        internalId: 'int-old',
+      );
+      hiveServerStorage.seed([existingServer]);
+      final oldFilePath = _serverOtsFilePath(
+        existingServer.name,
+        existingServer.internalId,
+      );
+      await File(oldFilePath).parent.create(recursive: true);
+      await File(oldFilePath).writeAsString('old');
+      internalStorage.seed([
+        InternalServerDao(id: existingServer.internalId, file: oldFilePath),
+      ]);
+
+      final service = ServerService(hiveServerStorage, internalStorage);
+      final bundle = await _createTestOtsBundle(existingServer.name);
+
+      final imported = await service.import(bundle.zipPath);
+      final servers = await service.list();
+      final matching = servers
+          .where((s) => s.name == existingServer.name && s.tag == NULL_TAG)
+          .toList();
+
+      expect(matching, hasLength(1));
+      expect(matching.single.id, equals(imported.id));
+      expect(await hiveServerStorage.get(existingServer.id), isNull);
+      expect(await internalStorage.get(existingServer.internalId), isNull);
+      expect(await File(oldFilePath).exists(), isFalse);
+
+      final newFilePath = _serverOtsFilePath(
+        imported.name,
+        imported.internalId,
+      );
+      expect(await File(newFilePath).exists(), isTrue);
+
+      await bundle.dispose();
+      await File(newFilePath).delete();
+    });
   });
+}
+
+String _serverOtsFilePath(String name, String internalId) {
+  return '$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}$name-$internalId.ots';
+}
+
+Future<_TestOtsBundle> _createTestOtsBundle(String name) async {
+  final rootDir = await Directory.systemTemp.createTemp('ots_bundle_');
+  final contentDir = Directory(p.join(rootDir.path, 'content'));
+  await contentDir.create(recursive: true);
+
+  final config = OpentoolfileConfig(
+    name: name,
+    os: SystemUtil.getOS(),
+    cpuArch: SystemUtil.getCpuArch(),
+    build: OpenToolBuild(args: const {}, runs: const []),
+    run: OpenToolRun(
+      envs: const {},
+      workdir: '.',
+      entrypoint: 'run.sh',
+      cmds: const [],
+    ),
+  );
+  final configFile = File(p.join(contentDir.path, OPENTOOL_FILE_JSON_NAME));
+  await configFile.writeAsString(jsonEncode(config.toJson()));
+  final scriptFile = File(p.join(contentDir.path, 'run.sh'));
+  await scriptFile.writeAsString('#!/bin/bash\necho test');
+
+  final zipPath = p.join(rootDir.path, 'bundle.ots');
+  await ZipUtil.zipDirectory(contentDir.path, zipPath);
+  return _TestOtsBundle(zipPath, rootDir);
+}
+
+class _TestOtsBundle {
+  final String zipPath;
+  final Directory rootDir;
+
+  _TestOtsBundle(this.zipPath, this.rootDir);
+
+  Future<void> dispose() async {
+    if (await rootDir.exists()) {
+      await rootDir.delete(recursive: true);
+    }
+  }
 }

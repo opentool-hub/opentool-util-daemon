@@ -1,6 +1,6 @@
 name: opentool_daemon
 description: A HTTP Daemon Server to manage native OpenTool Servers.
-version: 0.1.0
+version: 1.0.0
 repository: https://github.com/opentool-hub/opentool-daemon
 
 environment:
