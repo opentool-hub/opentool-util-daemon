@@ -55,6 +55,7 @@ class ToolService {
     logger.log(LogModule.tool, "refreshStatusesOnStartup.done", detail: "checked: ${toolDaos.length}");
   }
 
+  /// Lists tools known to the daemon. Set [all] to true to include stopped tools.
   Future<List<ToolModel>> list({bool all = false}) async {
     logger.log(LogModule.tool, "list.input", detail: "all: $all");
     List<ToolDao> daoList = await _cacheToolStorage.list();
@@ -79,6 +80,7 @@ class ToolService {
     return ToolModel.fromDao(toolDao);
   }
 
+  /// Creates and runs a new tool process from the given server package.
   Future<ToolModel> runServer(
     ServerModel server,
     String hostType, {
@@ -173,6 +175,7 @@ class ToolService {
     return ToolModel.fromDao(toolDao);
   }
 
+  /// Restarts an existing tool process by reusing its workspace.
   Future<void> startTool(
     ToolModel tool, {
     void Function(String script, String output)? onStdout,
@@ -242,6 +245,7 @@ class ToolService {
     );
   }
 
+  /// Verifies the tool process is alive by calling its /version endpoint.
   Future<void> check(String toolId) async {
     await _checkThenRun(toolId, (client) async {
       Version version = await client.version();

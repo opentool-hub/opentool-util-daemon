@@ -17,12 +17,11 @@ import 'service/tool_service.dart';
 class DaemonServer {
   late HttpServer server;
 
-
   Future<void> start() async {
     String version = config.version;
-    String host = config.server?.host??InternetAddress.loopbackIPv4.host;
-    int port = config.server?.port??DAEMON_DEFAULT_PORT;
-    String prefix = config.server?.prefix??DAEMON_DEFAULT_PREFIX;
+    String host = config.server?.host ?? InternetAddress.loopbackIPv4.host;
+    int port = config.server?.port ?? DAEMON_DEFAULT_PORT;
+    String prefix = config.server?.prefix ?? DAEMON_DEFAULT_PREFIX;
     String serverPrefix = SERVER_PREFIX;
     String toolPrefix = TOOL_PREFIX;
 
@@ -30,17 +29,28 @@ class DaemonServer {
     await hiveServerStorage.init();
     HiveToolStorage hiveToolStorage = HiveToolStorage();
     await hiveToolStorage.init();
-    HiveInternalServerStorage hiveInternalServerStorage = HiveInternalServerStorage();
+    HiveInternalServerStorage hiveInternalServerStorage =
+        HiveInternalServerStorage();
     await hiveInternalServerStorage.init();
 
     ManageService manageService = ManageService(version);
-    ServerService serverService = ServerService(hiveServerStorage, hiveInternalServerStorage);
-    ToolService toolService  = ToolService(hiveToolStorage);
+    ServerService serverService = ServerService(
+      hiveServerStorage,
+      hiveInternalServerStorage,
+    );
+    ToolService toolService = ToolService(hiveToolStorage);
     await toolService.refreshStatusesOnStartup();
 
     ManageController manageController = ManageController(manageService);
-    ServerController serverController = ServerController(serverService, manageService);
-    ToolController toolController = ToolController(toolService, serverService);
+    ServerController serverController = ServerController(
+      serverService,
+      manageService,
+    );
+    ToolController toolController = ToolController(
+      toolService,
+      serverService,
+      manageService,
+    );
 
     manageRoutes(manageController);
     serverRoutes(serverController);
@@ -59,7 +69,9 @@ class DaemonServer {
         .addHandler(mainRouter);
 
     server = await serve(handler, host, port);
-    print("Start OpenTool Daemon: http://${server.address.host}:${server.port}$prefix");
+    print(
+      "Start OpenTool Daemon: http://${server.address.host}:${server.port}$prefix",
+    );
   }
 
   Future<void> stop() async {

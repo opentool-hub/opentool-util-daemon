@@ -40,6 +40,9 @@ All paths below are relative to the base prefix `/opentool-daemon`.
 | Manage | POST   | `/opentool-hub/login`        | Authenticate with an OpenTool Hub registry                 |
 | Manage | GET    | `/opentool-hub/user`         | Return cached Hub user info                                |
 | Manage | POST   | `/opentool-hub/logout`       | Clear stored Hub credentials                               |
+| Manage | POST   | `/apiKey`                    | Create a daemon API key (requires sudo token)              |
+| Manage | GET    | `/apiKeys`                   | List daemon API keys (requires sudo token)                 |
+| Manage | DELETE | `/apiKey/{apiKey}`           | Delete a daemon API key (requires sudo token)              |
 | Server | GET    | `/servers/list`              | List cached OpenTool servers                               |
 | Server | POST   | `/servers/build`             | Build a server from an Opentoolfile (SSE stream)           |
 | Server | POST   | `/servers/pull`              | Pull a server from the Hub into a temp `.ots` (SSE stream) |
@@ -50,6 +53,7 @@ All paths below are relative to the base prefix `/opentool-daemon`.
 | Server | POST   | `/servers/import`            | Import an external `.ots` file                             |
 | Server | POST   | `/servers/{serverId}/alias`  | Rename a server alias                                      |
 | Tool   | GET    | `/tools/list`                | List running tools (or `all` tools)                        |
+| Tool   | GET    | `/tools/listWithApiKeys`     | List tools and their API keys (requires daemon API key)    |
 | Tool   | POST   | `/tools/create`              | Run a tool from a server definition (SSE stream)           |
 | Tool   | POST   | `/tools/{toolId}/start`      | Restart a previously created tool (SSE stream)             |
 | Tool   | POST   | `/tools/{toolId}/stop`       | Stop a running tool                                        |
@@ -69,6 +73,11 @@ data:{"json":"payload"}
 ```
 
 Use the client in `lib/src/client/client.dart` or any SSE-capable HTTP library to consume them.
+
+## Security Headers & Tokens
+
+- `x-opentool-sudo-token`: single-use header that protects the API key endpoints. Generate a token as an administrator (the CLI calls `SudoUtil.ensureSudoAndWriteToken`) which writes `~/.opentool/opentool-daemon.sudo`. Pass the token value in requests to `/apiKey*`. The daemon validates the token against the file and deletes it (or expires it) after the first successful call.
+- `x-opentool-api-key`: persistent API keys created via `POST /apiKey`. Send the key in this header when accessing `/tools/listWithApiKeys` or any other API key-gated endpoint. Keys are stored under `~/.opentool/api_keys.json` and can be revoked via `DELETE /apiKey/{apiKey}`.
 
 ---
 
@@ -101,6 +110,41 @@ Response:
 ### GET /opentool-hub/user
 Returns the cached registry + username. Use `/opentool-hub/logout` (POST) to clear credentials.
 
+### POST /apiKey (requires `x-opentool-sudo-token`)
+Set the header to the temporary token dropped at `~/.opentool/opentool-daemon.sudo` and optionally name the key:
+```http
+POST /opentool-daemon/apiKey
+x-opentool-sudo-token: <temp-token>
+```
+```json
+{
+  "name": "dev-console"
+}
+```
+Response:
+```json
+{
+  "name": "dev-console",
+  "apiKey": "pk_opentool_123",
+  "createdAt": "2024-05-01T12:30:00.000Z"
+}
+```
+
+### GET /apiKeys (requires `x-opentool-sudo-token`)
+Returns every stored API key using the same sudo header. Pair this endpoint with a secure UI to audit daemon access tokens.
+```json
+[
+  {
+    "name": "dev-console",
+    "apiKey": "pk_opentool_123",
+    "createdAt": "2024-05-01T12:30:00.000Z"
+  }
+]
+```
+
+### DELETE /apiKey/{apiKey} (requires `x-opentool-sudo-token`)
+Removes the selected key immediately; running tools that relied on that key will fail the next privileged call.
+
 ---
 
 ## Server API Examples
@@ -129,6 +173,12 @@ Streams build progress for each command listed in `Opentoolfile`. `event:DATA` p
 ```
 `event:DONE` closes the stream once the `.ots` artifact is stored under `~/.opentool/servers`.
 
+### POST /servers/pull?name=demo&tag=latest
+Downloads the named server from the Hub to a temporary `.ots`, emitting SSE events:
+- `START`: `{ "sizeByByte": 123456, "digest": "sha256:...", "pullInfoDto": {"name": "demo", "tag": "latest"} }`
+- `DATA`: `{ "percent": 42, "pullInfoDto": { ... } }` for progress updates.
+- `DONE`: echoes the `PullInfoDto` once the archive is fully downloaded. The daemon automatically imports the artifact into the local cache afterwards.
+
 ### POST /servers/{serverId}/tag?tag=stable
 Returns the tagged server DTO. If the tag already exists for the same internal build, the existing record is reused.
 
@@ -156,8 +206,27 @@ Response mirrors `OpenToolServerDto` for the imported build.
 ### GET /tools/list?all=1
 Returns every tool entry. Omit `all` or set it to `0` to only receive running tools.
 
-### POST /tools/create?serverId=srv-1&hostType=local
-Starts a tool from the selected server. SSE events deliver command output (`event:DATA`) or errors (`event:ERROR`). The daemon allocates a new port, API key, and workspace under `~/.opentool/tools/{toolId}`.
+### GET /tools/listWithApiKeys?all=0 (requires `x-opentool-api-key`)
+Send any daemon API key via the header described earlier to receive the same tool list plus the per-tool API keys:
+```json
+[
+  {
+    "id": "tool-1",
+    "alias": "alpha",
+    "host": "127.0.0.1",
+    "port": 9001,
+    "apiKey": "tool_pk_abc",
+    "status": "RUNNING"
+  }
+]
+```
+
+### POST /tools/create?serverId=srv-1&hostType=local&timeout=20
+Starts a tool from the selected server. SSE events deliver command output (`event:DATA`) or errors (`event:ERROR`). The daemon allocates a new port, API key, and workspace under `~/.opentool/tools/{toolId}`. Optional query parameters:
+- `hostType`: `local`, `remote`, or omitted for `any` (pass-through to the tool runtime).
+- `timeout`: number of seconds before the daemon closes the SSE connection even if the tool keeps starting; the process continues in the background.
+
+`POST /tools/{toolId}/start?timeout=20` exposes the same SSE behavior for restarting an existing tool directory.
 
 ### POST /tools/{toolId}/call
 Request body should follow the OpenTool function-call schema:

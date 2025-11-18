@@ -61,6 +61,36 @@ Map<String, dynamic> _$UserInfoDtoToJson(UserInfoDto instance) {
   return val;
 }
 
+CreateApiKeyDto _$CreateApiKeyDtoFromJson(Map<String, dynamic> json) =>
+    CreateApiKeyDto(
+      name: json['name'] as String?,
+    );
+
+Map<String, dynamic> _$CreateApiKeyDtoToJson(CreateApiKeyDto instance) {
+  final val = <String, dynamic>{};
+
+  void writeNotNull(String key, dynamic value) {
+    if (value != null) {
+      val[key] = value;
+    }
+  }
+
+  writeNotNull('name', instance.name);
+  return val;
+}
+
+ApiKeyDto _$ApiKeyDtoFromJson(Map<String, dynamic> json) => ApiKeyDto(
+      name: json['name'] as String,
+      apiKey: json['apiKey'] as String,
+      createdAt: DateTime.parse(json['createdAt'] as String),
+    );
+
+Map<String, dynamic> _$ApiKeyDtoToJson(ApiKeyDto instance) => <String, dynamic>{
+      'name': instance.name,
+      'apiKey': instance.apiKey,
+      'createdAt': instance.createdAt.toIso8601String(),
+    };
+
 OpenToolServerDto _$OpenToolServerDtoFromJson(Map<String, dynamic> json) =>
     OpenToolServerDto(
       id: json['id'] as String,
@@ -234,11 +264,29 @@ ToolDto _$ToolDtoFromJson(Map<String, dynamic> json) => ToolDto(
       alias: json['alias'] as String,
       host: json['host'] as String,
       port: (json['port'] as num).toInt(),
-      apiKey: json['apiKey'] as String,
       status: json['status'] as String,
     );
 
 Map<String, dynamic> _$ToolDtoToJson(ToolDto instance) => <String, dynamic>{
+      'id': instance.id,
+      'alias': instance.alias,
+      'host': instance.host,
+      'port': instance.port,
+      'status': instance.status,
+    };
+
+ToolWithApiKeyDto _$ToolWithApiKeyDtoFromJson(Map<String, dynamic> json) =>
+    ToolWithApiKeyDto(
+      id: json['id'] as String,
+      alias: json['alias'] as String,
+      host: json['host'] as String,
+      port: (json['port'] as num).toInt(),
+      apiKey: json['apiKey'] as String,
+      status: json['status'] as String,
+    );
+
+Map<String, dynamic> _$ToolWithApiKeyDtoToJson(ToolWithApiKeyDto instance) =>
+    <String, dynamic>{
       'id': instance.id,
       'alias': instance.alias,
       'host': instance.host,

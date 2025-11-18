@@ -77,3 +77,21 @@ class SystemMismatchException implements Exception {
     return 'SystemMismatchException: $message';
   }
 }
+
+class ApiKeyNotFoundException implements Exception {
+  final String id;
+
+  ApiKeyNotFoundException(this.id);
+
+  @override
+  String toString() => 'ApiKeyNotFoundException: $id';
+}
+
+class SudoAuthorizationException implements Exception {
+  final String message;
+
+  SudoAuthorizationException(this.message);
+
+  @override
+  String toString() => 'SudoAuthorizationException: $message';
+}

@@ -33,6 +33,38 @@ void main() {
       expect(tools.single.id, equals('tool-1'));
     });
 
+    test('listToolWithApiKeys sets daemon api key header', () async {
+      RequestOptions? captured;
+      final stub = createStubDio({
+        'GET /listWithApiKeys': (options) {
+          captured = options;
+          return [
+            {
+              'id': 'tool-1',
+              'alias': 'alpha',
+              'tag': '1.0.0',
+              'host': '127.0.0.1',
+              'port': 9000,
+              'apiKey': 'key-1',
+              'status': 'running',
+            },
+          ];
+        },
+      });
+
+      final client = DaemonClient();
+      client.toolDio = stub;
+
+      final tools = await client.listToolWithApiKeys(
+        '1',
+        daemonApiKey: 'admin',
+      );
+
+      expect(captured?.queryParameters['all'], equals('1'));
+      expect(captured?.headers['x-opentool-api-key'], equals('admin'));
+      expect(tools.single.apiKey, equals('key-1'));
+    });
+
     test('setAliasTool posts the alias as a query parameter', () async {
       RequestOptions? captured;
       final stub = createStubDio({

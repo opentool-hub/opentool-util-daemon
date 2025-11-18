@@ -11,14 +11,13 @@ class VersionDto {
 
   VersionDto({required this.name, required this.version});
 
-  factory VersionDto.fromJson(Map<String, dynamic> json) => _$VersionDtoFromJson(json);
+  factory VersionDto.fromJson(Map<String, dynamic> json) =>
+      _$VersionDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$VersionDtoToJson(this);
 
-  factory VersionDto.fromModel(VersionModel model) => VersionDto(
-    name: model.name,
-    version: model.version,
-  );
+  factory VersionDto.fromModel(VersionModel model) =>
+      VersionDto(name: model.name, version: model.version);
 }
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
@@ -28,12 +27,13 @@ class LoginInfoDto {
   String password;
 
   LoginInfoDto({
-    this.registry  = DEFAULT_REGISTRY,
+    this.registry = DEFAULT_REGISTRY,
     required this.username,
     required this.password,
   });
 
-  factory LoginInfoDto.fromJson(Map<String, dynamic> json) => _$LoginInfoDtoFromJson(json);
+  factory LoginInfoDto.fromJson(Map<String, dynamic> json) =>
+      _$LoginInfoDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$LoginInfoDtoToJson(this);
 
@@ -49,12 +49,10 @@ class LoginResultDto {
   String registry;
   String username;
 
-  LoginResultDto({
-    required this.registry,
-    required this.username,
-  });
+  LoginResultDto({required this.registry, required this.username});
 
-  factory LoginResultDto.fromJson(Map<String, dynamic> json) => _$LoginResultDtoFromJson(json);
+  factory LoginResultDto.fromJson(Map<String, dynamic> json) =>
+      _$LoginResultDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$LoginResultDtoToJson(this);
 }
@@ -64,18 +62,50 @@ class UserInfoDto {
   String? registry;
   String? username;
 
-  UserInfoDto({
-    this.registry,
-    this.username,
-  });
+  UserInfoDto({this.registry, this.username});
 
-  factory UserInfoDto.fromJson(Map<String, dynamic> json) => _$UserInfoDtoFromJson(json);
+  factory UserInfoDto.fromJson(Map<String, dynamic> json) =>
+      _$UserInfoDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$UserInfoDtoToJson(this);
 
-  factory UserInfoDto.fromModel(UserInfo userInfo) => UserInfoDto(
-    registry: userInfo.registry,
-    username: userInfo.username,
+  factory UserInfoDto.fromModel(UserInfo userInfo) =>
+      UserInfoDto(registry: userInfo.registry, username: userInfo.username);
+}
+
+@JsonSerializable(explicitToJson: true, includeIfNull: false)
+class CreateApiKeyDto {
+  String? name;
+
+  CreateApiKeyDto({this.name});
+
+  factory CreateApiKeyDto.fromJson(Map<String, dynamic> json) =>
+      _$CreateApiKeyDtoFromJson(json);
+
+  Map<String, dynamic> toJson() => _$CreateApiKeyDtoToJson(this);
+}
+
+@JsonSerializable(explicitToJson: true, includeIfNull: false)
+class ApiKeyDto {
+  String name;
+  String apiKey;
+  DateTime createdAt;
+
+  ApiKeyDto({
+    required this.name,
+    required this.apiKey,
+    required this.createdAt,
+  });
+
+  factory ApiKeyDto.fromJson(Map<String, dynamic> json) =>
+      _$ApiKeyDtoFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ApiKeyDtoToJson(this);
+
+  factory ApiKeyDto.fromModel(ApiKeyModel model) => ApiKeyDto(
+    name: model.name,
+    apiKey: model.apiKey,
+    createdAt: model.createdAt,
   );
 }
 
@@ -97,7 +127,8 @@ class OpenToolServerDto {
     required this.tag,
   });
 
-  factory OpenToolServerDto.fromJson(Map<String, dynamic> json) => _$OpenToolServerDtoFromJson(json);
+  factory OpenToolServerDto.fromJson(Map<String, dynamic> json) =>
+      _$OpenToolServerDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$OpenToolServerDtoToJson(this);
 
@@ -115,11 +146,10 @@ class OpenToolServerDto {
 class EventMessageDto {
   String message;
 
-  EventMessageDto({
-    required this.message,
-  });
+  EventMessageDto({required this.message});
 
-  factory EventMessageDto.fromJson(Map<String, dynamic> json) => _$EventMessageDtoFromJson(json);
+  factory EventMessageDto.fromJson(Map<String, dynamic> json) =>
+      _$EventMessageDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$EventMessageDtoToJson(this);
 }
@@ -130,13 +160,10 @@ class BuildInfoDto {
   String name;
   String? tag;
 
-  BuildInfoDto({
-    required this.opentoolfile,
-    required this.name,
-    this.tag
-  });
+  BuildInfoDto({required this.opentoolfile, required this.name, this.tag});
 
-  factory BuildInfoDto.fromJson(Map<String, dynamic> json) => _$BuildInfoDtoFromJson(json);
+  factory BuildInfoDto.fromJson(Map<String, dynamic> json) =>
+      _$BuildInfoDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$BuildInfoDtoToJson(this);
 }
@@ -146,12 +173,10 @@ class CommandOutputDto {
   String script;
   String output;
 
-  CommandOutputDto({
-    required this.script,
-    required this.output,
-  });
+  CommandOutputDto({required this.script, required this.output});
 
-  factory CommandOutputDto.fromJson(Map<String, dynamic> json) => _$CommandOutputDtoFromJson(json);
+  factory CommandOutputDto.fromJson(Map<String, dynamic> json) =>
+      _$CommandOutputDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$CommandOutputDtoToJson(this);
 }
@@ -168,7 +193,8 @@ class PushStartDto {
     required this.digest,
   });
 
-  factory PushStartDto.fromJson(Map<String, dynamic> json) => _$PushStartDtoFromJson(json);
+  factory PushStartDto.fromJson(Map<String, dynamic> json) =>
+      _$PushStartDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$PushStartDtoToJson(this);
 }
@@ -178,12 +204,10 @@ class PushUploadDto {
   String serverId;
   int percent;
 
-  PushUploadDto({
-    required this.serverId,
-    required this.percent,
-  });
+  PushUploadDto({required this.serverId, required this.percent});
 
-  factory PushUploadDto.fromJson(Map<String, dynamic> json) => _$PushUploadDtoFromJson(json);
+  factory PushUploadDto.fromJson(Map<String, dynamic> json) =>
+      _$PushUploadDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$PushUploadDtoToJson(this);
 }
@@ -193,12 +217,10 @@ class PullInfoDto {
   String name;
   String? tag;
 
-  PullInfoDto({
-    required this.name,
-    this.tag,
-  });
+  PullInfoDto({required this.name, this.tag});
 
-  factory PullInfoDto.fromJson(Map<String, dynamic> json) => _$PullInfoDtoFromJson(json);
+  factory PullInfoDto.fromJson(Map<String, dynamic> json) =>
+      _$PullInfoDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$PullInfoDtoToJson(this);
 }
@@ -215,7 +237,8 @@ class PullStartDto {
     required this.digest,
   });
 
-  factory PullStartDto.fromJson(Map<String, dynamic> json) => _$PullStartDtoFromJson(json);
+  factory PullStartDto.fromJson(Map<String, dynamic> json) =>
+      _$PullStartDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$PullStartDtoToJson(this);
 }
@@ -225,12 +248,10 @@ class PullDownloadDto {
   PullInfoDto pullInfoDto;
   int percent;
 
-  PullDownloadDto({
-    required this.pullInfoDto,
-    required this.percent,
-  });
+  PullDownloadDto({required this.pullInfoDto, required this.percent});
 
-  factory PullDownloadDto.fromJson(Map<String, dynamic> json) => _$PullDownloadDtoFromJson(json);
+  factory PullDownloadDto.fromJson(Map<String, dynamic> json) =>
+      _$PullDownloadDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$PullDownloadDtoToJson(this);
 }
@@ -239,11 +260,10 @@ class PullDownloadDto {
 class ServerIdDto {
   String id;
 
-  ServerIdDto({
-    required this.id,
-  });
+  ServerIdDto({required this.id});
 
-  factory ServerIdDto.fromJson(Map<String, dynamic> json) => _$ServerIdDtoFromJson(json);
+  factory ServerIdDto.fromJson(Map<String, dynamic> json) =>
+      _$ServerIdDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$ServerIdDtoToJson(this);
 }
@@ -254,13 +274,10 @@ class CommandResultDto {
   String? output;
   String? error;
 
-  CommandResultDto({
-    required this.command,
-    this.output,
-    this.error,
-  });
+  CommandResultDto({required this.command, this.output, this.error});
 
-  factory CommandResultDto.fromJson(Map<String, dynamic> json) => _$CommandResultDtoFromJson(json);
+  factory CommandResultDto.fromJson(Map<String, dynamic> json) =>
+      _$CommandResultDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$CommandResultDtoToJson(this);
 }
@@ -271,10 +288,40 @@ class ToolDto {
   String alias;
   String host;
   int port;
-  String apiKey;
   String status;
 
   ToolDto({
+    required this.id,
+    required this.alias,
+    required this.host,
+    required this.port,
+    required this.status,
+  });
+
+  factory ToolDto.fromJson(Map<String, dynamic> json) =>
+      _$ToolDtoFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ToolDtoToJson(this);
+
+  factory ToolDto.fromModel(ToolModel tool) => ToolDto(
+    id: tool.id,
+    alias: tool.alias,
+    host: tool.host,
+    port: tool.port,
+    status: tool.status,
+  );
+}
+
+@JsonSerializable(explicitToJson: true, includeIfNull: false)
+class ToolWithApiKeyDto {
+  String id;
+  String alias;
+  String host;
+  int port;
+  String apiKey;
+  String status;
+
+  ToolWithApiKeyDto({
     required this.id,
     required this.alias,
     required this.host,
@@ -283,11 +330,12 @@ class ToolDto {
     required this.status,
   });
 
-  factory ToolDto.fromJson(Map<String, dynamic> json) => _$ToolDtoFromJson(json);
+  factory ToolWithApiKeyDto.fromJson(Map<String, dynamic> json) =>
+      _$ToolWithApiKeyDtoFromJson(json);
 
-  Map<String, dynamic> toJson() => _$ToolDtoToJson(this);
+  Map<String, dynamic> toJson() => _$ToolWithApiKeyDtoToJson(this);
 
-  factory ToolDto.fromModel(ToolModel tool) => ToolDto(
+  factory ToolWithApiKeyDto.fromModel(ToolModel tool) => ToolWithApiKeyDto(
     id: tool.id,
     alias: tool.alias,
     host: tool.host,
@@ -301,11 +349,10 @@ class ToolDto {
 class StartInfoDto {
   String? hostType;
 
-  StartInfoDto({
-    this.hostType,
-  });
+  StartInfoDto({this.hostType});
 
-  factory StartInfoDto.fromJson(Map<String, dynamic> json) => _$StartInfoDtoFromJson(json);
+  factory StartInfoDto.fromJson(Map<String, dynamic> json) =>
+      _$StartInfoDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$StartInfoDtoToJson(this);
 }
@@ -314,11 +361,10 @@ class StartInfoDto {
 class ListToolInfoDto {
   String? all;
 
-  ListToolInfoDto({
-    this.all,
-  });
+  ListToolInfoDto({this.all});
 
-  factory ListToolInfoDto.fromJson(Map<String, dynamic> json) => _$ListToolInfoDtoFromJson(json);
+  factory ListToolInfoDto.fromJson(Map<String, dynamic> json) =>
+      _$ListToolInfoDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$ListToolInfoDtoToJson(this);
 }
@@ -327,11 +373,10 @@ class ListToolInfoDto {
 class ToolIdDto {
   String id;
 
-  ToolIdDto({
-    required this.id,
-  });
+  ToolIdDto({required this.id});
 
-  factory ToolIdDto.fromJson(Map<String, dynamic> json) => _$ToolIdDtoFromJson(json);
+  factory ToolIdDto.fromJson(Map<String, dynamic> json) =>
+      _$ToolIdDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$ToolIdDtoToJson(this);
 }
@@ -340,11 +385,10 @@ class ToolIdDto {
 class PathDto {
   String path;
 
-  PathDto({
-    required this.path,
-  });
+  PathDto({required this.path});
 
-  factory PathDto.fromJson(Map<String, dynamic> json) => _$PathDtoFromJson(json);
+  factory PathDto.fromJson(Map<String, dynamic> json) =>
+      _$PathDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$PathDtoToJson(this);
 }

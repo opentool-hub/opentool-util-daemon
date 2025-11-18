@@ -13,6 +13,9 @@ void manageRoutes(ManageController manageController) {
   manageRouter.post('/opentool-hub/login', manageController.login);
   manageRouter.get('/opentool-hub/user', manageController.getUserInfo);
   manageRouter.post('/opentool-hub/logout', manageController.logout);
+  manageRouter.post('/apiKey', manageController.createApiKey);
+  manageRouter.get('/apiKeys', manageController.listApiKeys);
+  manageRouter.delete('/apiKey/<apiKey>', manageController.deleteApiKey);
 }
 
 /// /opentool-daemon/servers
@@ -30,6 +33,7 @@ void serverRoutes(ServerController serverController) {
 /// /opentool-daemon/tools
 void toolRoutes(ToolController toolController) {
   toolRouter.get('/list', toolController.listTools);
+  toolRouter.get('/listWithApiKeys', toolController.listToolsWithApiKeys);
   toolRouter.post('/create', toolController.runServer);
   toolRouter.post('/<toolId>/start', toolController.startTool);
   toolRouter.post('/<toolId>/stop', toolController.stopTool);

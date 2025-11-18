@@ -10,10 +10,7 @@ class InternalServerDao extends HiveObject {
   @HiveField(1)
   String file;
 
-  InternalServerDao({
-    required this.id,
-    required this.file,
-  });
+  InternalServerDao({required this.id, required this.file});
 }
 
 @HiveType(typeId: 1)
@@ -80,6 +77,28 @@ class ToolDao extends HiveObject {
     required this.host,
     required this.port,
     required this.apiKey,
-    required this.status
+    required this.status,
+  });
+}
+
+@HiveType(typeId: 3)
+class ApiKeyDao extends HiveObject {
+  @HiveField(0)
+  String id;
+
+  @HiveField(1)
+  String name;
+
+  @HiveField(2)
+  String apiKey;
+
+  @HiveField(3)
+  DateTime createdAt;
+
+  ApiKeyDao({
+    required this.id,
+    required this.name,
+    required this.apiKey,
+    required this.createdAt,
   });
 }

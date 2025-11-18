@@ -138,3 +138,63 @@ class HiveToolStorage implements Storage<ToolDao> {
     return _box.values.toList();
   }
 }
+
+class HiveApiKeyStorage implements Storage<ApiKeyDao> {
+  static const String _boxName = 'api_keys';
+  static const int _typeId = 3;
+
+  final String dataDir;
+
+  HiveApiKeyStorage({required this.dataDir});
+
+  bool _initialized = false;
+  late Box<ApiKeyDao> _box;
+
+  Future<void> _initIfNeeded() async {
+    if (_initialized) return;
+    if (!Hive.isAdapterRegistered(_typeId)) {
+      Hive.registerAdapter(ApiKeyDaoAdapter());
+    }
+    if (Hive.isBoxOpen(_boxName)) {
+      _box = Hive.box<ApiKeyDao>(_boxName);
+    } else {
+      final hivePath = p.join(dataDir, 'db');
+      await Directory(hivePath).create(recursive: true);
+      Hive.init(hivePath);
+      _box = await Hive.openBox<ApiKeyDao>(_boxName);
+    }
+    _initialized = true;
+  }
+
+  @override
+  Future<void> add(ApiKeyDao value) async {
+    await _initIfNeeded();
+    await _box.put(value.id, value);
+  }
+
+  @override
+  Future<ApiKeyDao?> get(String id) async {
+    await _initIfNeeded();
+    return _box.get(id);
+  }
+
+  @override
+  Future<void> update(ApiKeyDao value) async {
+    await _initIfNeeded();
+    await _box.put(value.id, value);
+  }
+
+  @override
+  Future<ApiKeyDao?> remove(String id) async {
+    await _initIfNeeded();
+    final value = _box.get(id);
+    await _box.delete(id);
+    return value;
+  }
+
+  @override
+  Future<List<ApiKeyDao>> list() async {
+    await _initIfNeeded();
+    return _box.values.toList();
+  }
+}

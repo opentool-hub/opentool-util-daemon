@@ -3,9 +3,11 @@ import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:opentool_dart/opentool_dart.dart';
 import 'package:shelf/shelf.dart';
+import '../service/manage_service.dart';
 import '../service/model.dart';
 import '../service/server_service.dart';
 import '../service/tool_service.dart';
+import '../service/exception.dart';
 import '../constants.dart';
 import '../utils/logger.dart';
 import 'dto.dart';
@@ -13,8 +15,9 @@ import 'dto.dart';
 class ToolController {
   ToolService toolService;
   ServerService serverService;
+  ManageService manageService;
 
-  ToolController(this.toolService, this.serverService);
+  ToolController(this.toolService, this.serverService, this.manageService);
 
   /// GET /tools/list?all=0
   Future<Response> listTools(Request request) async {
@@ -33,6 +36,37 @@ class ToolController {
     logger.log(
       LogModule.http,
       "listTools.output",
+      detail: jsonEncode(toolsDto),
+    );
+    return Response.ok(jsonEncode(toolsDto), headers: JSON_HEADERS);
+  }
+
+  /// GET /tools/listWithApiKeys
+  Future<Response> listToolsWithApiKeys(Request request) async {
+    final token = request.headers[TOOL_API_KEY_HEADER];
+    try {
+      await manageService.ensureDaemonApiKey(token);
+    } on ApiKeyNotFoundException catch (error) {
+      return Response.forbidden(
+        jsonEncode({'error': error.toString()}),
+        headers: JSON_HEADERS,
+      );
+    }
+    final queryParams = request.url.queryParameters;
+    logger.log(
+      LogModule.http,
+      'listToolsWithApiKeys.input',
+      detail: jsonEncode(queryParams),
+      level: Level.FINE,
+    );
+    final all = queryParams['all'] == '1';
+    final tools = await toolService.list(all: all);
+    final toolsDto = tools
+        .map((tool) => ToolWithApiKeyDto.fromModel(tool).toJson())
+        .toList();
+    logger.log(
+      LogModule.http,
+      'listToolsWithApiKeys.output',
       detail: jsonEncode(toolsDto),
     );
     return Response.ok(jsonEncode(toolsDto), headers: JSON_HEADERS);
@@ -365,6 +399,7 @@ class ToolController {
       isStreamClosed = true;
       unawaited(streamController.close());
     }
+
     toolService.streamCall(toolId, functionCall, (
       String event,
       ToolReturn toolReturn,

@@ -45,6 +45,11 @@ class DaemonClient {
 
   /// Manage API： /opentool-daemon ==========
 
+  Options _sudoOptions(String sudoToken) =>
+      Options(headers: {...manageDio.options.headers, _sudoHeader: sudoToken});
+
+  static const String _sudoHeader = 'x-opentool-sudo-token';
+
   /// GET /version
   Future<VersionDto> getVersion() async {
     Response response = await manageDio.get('/version');
@@ -70,6 +75,40 @@ class DaemonClient {
   Future<UserInfoDto> logoutHub() async {
     Response response = await manageDio.post('/opentool-hub/logout');
     return UserInfoDto.fromJson(response.data);
+  }
+
+  /// POST /apiKey
+  Future<ApiKeyDto> createApiKey({
+    required String sudoToken,
+    String? name,
+  }) async {
+    final data = name == null ? null : CreateApiKeyDto(name: name).toJson();
+    final response = await manageDio.post(
+      '/apiKey',
+      data: data,
+      options: _sudoOptions(sudoToken),
+    );
+    return ApiKeyDto.fromJson(response.data);
+  }
+
+  /// GET /apiKeys
+  Future<List<ApiKeyDto>> listApiKeys({required String sudoToken}) async {
+    final response = await manageDio.get(
+      '/apiKeys',
+      options: _sudoOptions(sudoToken),
+    );
+    final res = response.data as List<dynamic>;
+    return res
+        .map((e) => ApiKeyDto.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// DELETE /apiKey/{apiKey}
+  Future<void> deleteApiKey({
+    required String sudoToken,
+    required String apiKey,
+  }) async {
+    await manageDio.delete('/apiKey/$apiKey', options: _sudoOptions(sudoToken));
   }
 
   /// Server API： /opentool-daemon/servers ==========
@@ -267,6 +306,31 @@ class DaemonClient {
         .map((dyn) => ToolDto.fromJson(dyn as Map<String, dynamic>))
         .toList();
     return result;
+  }
+
+  /// GET /tools/listWithApiKeys?all=0
+  Future<List<ToolWithApiKeyDto>> listToolWithApiKeys(
+    String? all, {
+    required String daemonApiKey,
+  }) async {
+    Map<String, dynamic>? queryParameters;
+    if (all != null && all.isNotEmpty) {
+      queryParameters = {'all': all};
+    }
+    final response = await toolDio.get(
+      '/listWithApiKeys',
+      queryParameters: queryParameters,
+      options: Options(
+        headers: {
+          ...toolDio.options.headers,
+          TOOL_API_KEY_HEADER: daemonApiKey,
+        },
+      ),
+    );
+    final res = response.data as List<dynamic>;
+    return res
+        .map((dyn) => ToolWithApiKeyDto.fromJson(dyn as Map<String, dynamic>))
+        .toList();
   }
 
   /// POST /tools/create

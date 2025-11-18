@@ -9,10 +9,7 @@ class VersionModel {
   String name;
   String version;
 
-  VersionModel({
-    required this.name,
-    required this.version,
-  });
+  VersionModel({required this.name, required this.version});
 }
 
 class LoginInfoModel {
@@ -31,16 +28,13 @@ class UserInfo {
   String? registry;
   String? username;
 
-  UserInfo({
-    this.registry,
-    this.username,
-  });
+  UserInfo({this.registry, this.username});
 }
 
 class ServerModel {
   String id;
   String alias;
-  String registry ;
+  String registry;
   String repo;
   String name;
   String tag;
@@ -64,19 +58,19 @@ class ServerModel {
       repo: dao.repo,
       name: dao.name,
       tag: dao.tag,
-      internalId: dao.internalId
+      internalId: dao.internalId,
     );
   }
 
   ServerDao toDao() {
     return ServerDao(
-        id: id,
-        alias: alias,
-        registry: registry,
-        repo: repo,
-        name: name,
-        tag: tag,
-        internalId: internalId
+      id: id,
+      alias: alias,
+      registry: registry,
+      repo: repo,
+      name: name,
+      tag: tag,
+      internalId: internalId,
     );
   }
 }
@@ -85,7 +79,7 @@ class ToolModel {
   String id;
   String alias;
   String tag;
-  String host ;
+  String host;
   int port;
   String apiKey;
   String status;
@@ -123,4 +117,28 @@ class ToolModel {
       status: status,
     );
   }
+}
+
+class ApiKeyModel {
+  String id;
+  String name;
+  String apiKey;
+  DateTime createdAt;
+
+  ApiKeyModel({
+    required this.id,
+    required this.name,
+    required this.apiKey,
+    required this.createdAt,
+  });
+
+  factory ApiKeyModel.fromDao(ApiKeyDao dao) => ApiKeyModel(
+    id: dao.id,
+    name: dao.name,
+    apiKey: dao.apiKey,
+    createdAt: dao.createdAt,
+  );
+
+  ApiKeyDao toDao() =>
+      ApiKeyDao(id: id, name: name, apiKey: apiKey, createdAt: createdAt);
 }

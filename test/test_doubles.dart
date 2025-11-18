@@ -5,6 +5,7 @@ import 'package:opentool_daemon/src/service/server_service.dart';
 import 'package:opentool_daemon/src/service/tool_service.dart';
 import 'package:opentool_daemon/src/storage/dao.dart';
 import 'package:opentool_daemon/src/storage/hive_storage.dart';
+import 'package:opentool_daemon/src/storage/storage.dart';
 import 'package:opentool_dart/opentool_dart.dart';
 
 class FakeServerService implements ServerService {
@@ -309,4 +310,27 @@ class StubHiveToolStorage extends HiveToolStorage {
 
   @override
   Future<List<ToolDao>> list() async => _store.values.toList();
+}
+
+class InMemoryApiKeyStorage implements Storage<ApiKeyDao> {
+  final Map<String, ApiKeyDao> _store = {};
+
+  @override
+  Future<void> add(ApiKeyDao value) async {
+    _store[value.id] = value;
+  }
+
+  @override
+  Future<ApiKeyDao?> get(String id) async => _store[id];
+
+  @override
+  Future<void> update(ApiKeyDao value) async {
+    _store[value.id] = value;
+  }
+
+  @override
+  Future<ApiKeyDao?> remove(String id) async => _store.remove(id);
+
+  @override
+  Future<List<ApiKeyDao>> list() async => _store.values.toList();
 }

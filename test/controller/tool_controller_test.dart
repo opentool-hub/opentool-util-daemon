@@ -1,5 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:opentool_daemon/src/constants.dart';
 import 'package:opentool_daemon/src/controller/tool_controller.dart';
+import 'package:opentool_daemon/src/service/config.dart';
+import 'package:opentool_daemon/src/service/manage_service.dart';
 import 'package:opentool_daemon/src/service/model.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
@@ -9,9 +13,13 @@ void main() {
   group('ToolController', () {
     late FakeToolService toolService;
     late FakeServerService serverService;
+    late ManageService manageService;
+    late String adminApiKey;
+    late Directory tempDir;
     late ToolController controller;
 
-    setUp(() {
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('tool_controller');
       toolService = FakeToolService(
         initialTools: [
           ToolModel(
@@ -47,7 +55,19 @@ void main() {
           ),
         ],
       );
-      controller = ToolController(toolService, serverService);
+      final apiKeyStorage = InMemoryApiKeyStorage();
+      manageService = ManageService(
+        'test',
+        dataDir: tempDir.path,
+        apiKeyStorage: apiKeyStorage,
+      );
+      manageService.currConfig = OpenToolConfig();
+      adminApiKey = (await manageService.createApiKey(name: 'ops')).apiKey;
+      controller = ToolController(toolService, serverService, manageService);
+    });
+
+    tearDown(() async {
+      await tempDir.delete(recursive: true);
     });
 
     test('listTools respects the `all` query parameter', () async {
@@ -62,6 +82,32 @@ void main() {
 
       expect(decoded, hasLength(2));
       expect(decoded.first['alias'], equals('alpha'));
+    });
+
+    test('listToolsWithApiKeys enforces daemon api key validation', () async {
+      final authedRequest = Request(
+        'GET',
+        Uri.parse(
+          'http://localhost/opentool-daemon/tools/listWithApiKeys?all=1',
+        ),
+        headers: {TOOL_API_KEY_HEADER: adminApiKey},
+      );
+      final authedResponse = await controller.listToolsWithApiKeys(
+        authedRequest,
+      );
+      expect(authedResponse.statusCode, equals(200));
+      final decoded =
+          jsonDecode(await authedResponse.readAsString()) as List<dynamic>;
+      expect(decoded.first['apiKey'], equals('key-1'));
+
+      final unauthorizedRequest = Request(
+        'GET',
+        Uri.parse('http://localhost/opentool-daemon/tools/listWithApiKeys'),
+      );
+      final unauthorizedResponse = await controller.listToolsWithApiKeys(
+        unauthorizedRequest,
+      );
+      expect(unauthorizedResponse.statusCode, equals(403));
     });
 
     test('stopTool delegates to the service and returns the id DTO', () async {

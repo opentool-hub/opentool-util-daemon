@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:opentool_daemon/src/controller/dto.dart';
 import 'package:opentool_daemon/src/controller/manage_controller.dart';
+import 'package:opentool_daemon/src/service/exception.dart';
 import 'package:opentool_daemon/src/service/manage_service.dart';
 import 'package:opentool_daemon/src/service/model.dart';
 import 'package:shelf/shelf.dart';
@@ -84,6 +85,33 @@ void main() {
       expect(logoutDto.registry, equals('hub.local'));
       expect(manageService.userInfo.username, isNull);
     });
+
+    test(
+      'createApiKey forwards optional name and enforces sudo token',
+      () async {
+        manageService.nextApiKey = ApiKeyModel(
+          id: 'id-1',
+          name: 'webhook',
+          apiKey: 'secret',
+          createdAt: DateTime.utc(2024, 1, 1),
+        );
+        final request = Request(
+          'POST',
+          Uri.parse('http://localhost/opentool-daemon/apiKey'),
+          headers: {'x-opentool-sudo-token': 'sudo'},
+          body: jsonEncode({'name': 'webhook'}),
+        );
+
+        final response = await controller.createApiKey(request);
+
+        expect(response.statusCode, equals(200));
+        final payload =
+            jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+        expect(payload['name'], equals('webhook'));
+        expect(manageService.lastCreateApiKeyName, equals('webhook'));
+        expect(manageService.lastSudoToken, equals('sudo'));
+      },
+    );
   });
 }
 
@@ -91,6 +119,9 @@ class FakeManageService extends ManageService {
   VersionModel versionModel;
   UserInfo userInfo;
   LoginInfoModel? lastLogin;
+  ApiKeyModel? nextApiKey;
+  String? lastCreateApiKeyName;
+  String? lastSudoToken;
 
   FakeManageService({required this.versionModel, required this.userInfo})
     : super('test-version');
@@ -114,5 +145,25 @@ class FakeManageService extends ManageService {
     );
     userInfo = UserInfo();
     return previous;
+  }
+
+  @override
+  Future<ApiKeyModel> createApiKey({String? name}) async {
+    lastCreateApiKeyName = name;
+    return nextApiKey ??
+        ApiKeyModel(
+          id: 'generated',
+          name: name ?? 'api-key',
+          apiKey: 'generated-secret',
+          createdAt: DateTime.now().toUtc(),
+        );
+  }
+
+  @override
+  Future<void> ensureSudoToken(String? providedToken) async {
+    lastSudoToken = providedToken;
+    if (providedToken == null) {
+      throw SudoAuthorizationException('missing');
+    }
   }
 }
