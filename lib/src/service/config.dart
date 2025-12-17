@@ -1,8 +1,7 @@
 import 'dart:io';
 import 'package:json_annotation/json_annotation.dart';
-import 'package:opentool_daemon/src/service/exception.dart';
-import 'package:opentool_daemon/src/utils/system_util.dart';
-import '../utils/opentoolfile_parser.dart';
+import 'package:opentool_daemon/opentool_daemon_utils.dart';
+import 'exception.dart';
 
 part 'config.g.dart';
 

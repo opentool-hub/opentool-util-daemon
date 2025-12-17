@@ -1,10 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
-import 'package:opentool_dart/opentool_dart.dart';
+import 'package:opentool_daemon/opentool_daemon_utils.dart';
+import 'package:opentool_dart/opentool_client.dart';
 import 'package:opentool_daemon/opentool_daemon_server.dart';
-import '../utils/command_util.dart';
-import '../utils/sse_client.dart';
 
 class DaemonClient {
   String protocol = 'http';

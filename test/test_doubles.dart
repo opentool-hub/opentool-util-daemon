@@ -6,7 +6,7 @@ import 'package:opentool_daemon/src/service/tool_service.dart';
 import 'package:opentool_daemon/src/storage/dao.dart';
 import 'package:opentool_daemon/src/storage/hive_storage.dart';
 import 'package:opentool_daemon/src/storage/storage.dart';
-import 'package:opentool_dart/opentool_dart.dart';
+import 'package:opentool_dart/opentool_client.dart';
 
 class FakeServerService implements ServerService {
   final Map<String, ServerModel> _servers;
@@ -169,7 +169,7 @@ class FakeToolService implements ToolService {
   Future<void> streamCall(
     String toolId,
     FunctionCall functionCall,
-    void Function(String event, ToolReturn toolReturn) onToolReturn,
+    void Function(String event, Map<String, dynamic> payload) onToolReturn,
   ) async {}
 
   @override

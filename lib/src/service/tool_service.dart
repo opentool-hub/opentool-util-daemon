@@ -1,18 +1,13 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:logging/logging.dart';
-import 'package:opentool_dart/opentool_dart.dart';
+import 'package:opentool_daemon/opentool_daemon_utils.dart';
+import 'package:opentool_dart/opentool_client.dart';
 import 'package:path/path.dart' as p;
-import '../utils/directory_util.dart';
-import '../utils/json_file_util.dart';
-import '../utils/zip_util.dart';
 import '../constants.dart';
 import '../storage/cache_storage.dart';
 import '../storage/hive_storage.dart';
 import '../storage/dao.dart';
-import '../utils/command_util.dart';
-import '../utils/logger.dart';
-import '../utils/network_util.dart';
 import 'config.dart';
 import 'exception.dart';
 import 'model.dart';
@@ -315,7 +310,7 @@ class ToolService {
   Future<void> streamCall(
     String toolId,
     FunctionCall functionCall,
-    void Function(String event, ToolReturn toolReturn) onToolReturn,
+    void Function(String event, Map<String, dynamic> payload) onToolReturn,
   ) async {
     logger.log(
       LogModule.tool,

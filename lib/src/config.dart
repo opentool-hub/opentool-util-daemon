@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:json_annotation/json_annotation.dart';
 import 'package:logging/logging.dart';
-import 'package:opentool_dart/opentool_dart.dart';
+import 'package:opentool_dart/opentool_client.dart';
 import 'package:yaml/yaml.dart';
 import 'constants.dart';
 

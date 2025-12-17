@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:logging/logging.dart';
-import 'package:opentool_dart/opentool_dart.dart';
+import 'package:opentool_daemon/opentool_daemon_utils.dart';
+import 'package:opentool_dart/opentool_client.dart';
 import 'package:shelf/shelf.dart';
 import '../service/manage_service.dart';
 import '../service/model.dart';
@@ -9,7 +10,6 @@ import '../service/server_service.dart';
 import '../service/tool_service.dart';
 import '../service/exception.dart';
 import '../constants.dart';
-import '../utils/logger.dart';
 import 'dto.dart';
 
 class ToolController {
@@ -400,14 +400,11 @@ class ToolController {
       unawaited(streamController.close());
     }
 
-    toolService.streamCall(toolId, functionCall, (
-      String event,
-      ToolReturn toolReturn,
-    ) {
+    toolService.streamCall(toolId, functionCall, (String event, Map<String, dynamic> payload,) {
       _pushData(
         streamController,
         event,
-        jsonEncode(toolReturn.toJson()),
+        jsonEncode(payload),
         logMessage: "streamCallTool.push",
       );
       if (event == EventType.DONE || event == EventType.ERROR) {

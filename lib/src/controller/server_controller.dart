@@ -2,12 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:opentool_daemon/src/service/manage_service.dart';
-import 'package:opentool_dart/opentool_dart.dart';
+import 'package:opentool_dart/opentool_client.dart';
+import 'package:opentool_daemon/opentool_daemon_utils.dart';
 import 'package:shelf/shelf.dart';
 import '../service/model.dart';
 import '../service/server_service.dart';
 import '../constants.dart';
-import '../utils/logger.dart';
 import 'dto.dart';
 
 class ServerController {

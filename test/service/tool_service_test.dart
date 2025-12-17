@@ -2,7 +2,7 @@ import 'package:opentool_daemon/src/service/exception.dart';
 import 'package:opentool_daemon/src/service/model.dart';
 import 'package:opentool_daemon/src/service/tool_service.dart';
 import 'package:opentool_daemon/src/storage/dao.dart';
-import 'package:opentool_dart/opentool_dart.dart';
+import 'package:opentool_dart/opentool_client.dart';
 import 'package:test/test.dart';
 import '../test_doubles.dart';
 

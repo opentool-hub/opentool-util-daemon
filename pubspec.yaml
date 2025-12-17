@@ -18,6 +18,8 @@ dependencies:
     path: ../opentool-dart
   logging: ^1.2.0
   archive: ^3.4.10
+  uuid: ^4.5.1
+  snowflaker: ^1.1.0
 
 dev_dependencies:
   build_runner: ^2.4.13
