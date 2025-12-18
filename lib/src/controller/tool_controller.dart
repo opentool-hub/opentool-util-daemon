@@ -400,7 +400,7 @@ class ToolController {
       unawaited(streamController.close());
     }
 
-    toolService.streamCall(toolId, functionCall, (String event, Map<String, dynamic> payload,) {
+    toolService.streamCall(toolId, functionCall, (String event, ToolReturn toolReturn) {
       _pushData(
         streamController,
         event,

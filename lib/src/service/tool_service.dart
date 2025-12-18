@@ -310,7 +310,7 @@ class ToolService {
   Future<void> streamCall(
     String toolId,
     FunctionCall functionCall,
-    void Function(String event, Map<String, dynamic> payload) onToolReturn,
+    void Function(String event, ToolReturn toolReturn) onToolReturn,
   ) async {
     logger.log(
       LogModule.tool,
