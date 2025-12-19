@@ -32,10 +32,7 @@ void main() {
 
     test('falls back to id -u when env is not elevated', () async {
       final util = SudoUtil(
-        platform: const SudoPlatformContext(
-          isWindows: false,
-          environment: {},
-        ),
+        platform: const SudoPlatformContext(isWindows: false, environment: {}),
         commandRunner: (cmd, args) => _result('0'),
       );
 
@@ -44,10 +41,7 @@ void main() {
 
     test('ensureSudo throws when user is not root', () async {
       final util = SudoUtil(
-        platform: const SudoPlatformContext(
-          isWindows: false,
-          environment: {},
-        ),
+        platform: const SudoPlatformContext(isWindows: false, environment: {}),
         commandRunner: (cmd, args) => _result('1000'),
       );
 
@@ -82,9 +76,9 @@ void main() {
     test('readToken parses json from socket file', () async {
       final tempDir = await Directory.systemTemp.createTemp('sudo_util_read');
       final socketPath = p.join(tempDir.path, 'opentool.sock');
-      await File(socketPath).writeAsString(
-        jsonEncode({'tempToken': 'abc', 'timeoutInSecond': 60}),
-      );
+      await File(
+        socketPath,
+      ).writeAsString(jsonEncode({'tempToken': 'abc', 'timeoutInSecond': 60}));
       final util = SudoUtil(
         platform: const SudoPlatformContext(
           isWindows: false,

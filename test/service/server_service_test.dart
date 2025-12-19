@@ -85,8 +85,12 @@ void main() {
       await service.list(); // warm cache with every server entry
       final server = await service.tag('srv-1', 'stable');
 
-      expect(server.id, equals('srv-dup'));
+      expect(server.id, equals('srv-1'));
       expect(server.tag, equals('stable'));
+
+      final servers = await service.list();
+      expect(servers.where((s) => s.tag == 'stable'), hasLength(1));
+      expect(servers.any((s) => s.id == 'srv-dup'), isFalse);
     });
 
     test('tag creates a new tagged server when tag is missing', () async {
@@ -94,9 +98,10 @@ void main() {
       final server = await service.tag('srv-1', 'beta');
       final serversAfter = await service.list();
 
+      expect(server.id, equals('srv-1'));
       expect(server.tag, equals('beta'));
-      expect(serversAfter.length, equals(serversBefore.length + 1));
-      expect(serversAfter.where((s) => s.tag == 'beta'), isNotEmpty);
+      expect(serversAfter.length, equals(serversBefore.length));
+      expect(serversAfter.where((s) => s.tag == 'beta'), hasLength(1));
     });
 
     test(
@@ -194,6 +199,35 @@ void main() {
       await bundle.dispose();
       await File(newFilePath).delete();
     });
+
+    test('import picks tag from Opentoolfile.json when present', () async {
+      hiveServerStorage = StubHiveServerStorage();
+      internalStorage = StubHiveInternalServerStorage();
+      final service = ServerService(hiveServerStorage, internalStorage);
+
+      final bundle = await _createTestOtsBundle(
+        'import-tag-demo',
+        tag: '1.2.3',
+      );
+
+      final imported = await service.import(bundle.zipPath);
+      expect(imported.tag, equals('1.2.3'));
+
+      final servers = await service.list();
+      expect(
+        servers.where((s) => s.name == 'import-tag-demo' && s.tag == '1.2.3'),
+        hasLength(1),
+      );
+
+      final newFilePath = _serverOtsFilePath(
+        imported.name,
+        imported.internalId,
+      );
+      expect(await File(newFilePath).exists(), isTrue);
+
+      await bundle.dispose();
+      await File(newFilePath).delete();
+    });
   });
 }
 
@@ -201,13 +235,14 @@ String _serverOtsFilePath(String name, String internalId) {
   return '$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}$name-$internalId.ots';
 }
 
-Future<_TestOtsBundle> _createTestOtsBundle(String name) async {
+Future<_TestOtsBundle> _createTestOtsBundle(String name, {String? tag}) async {
   final rootDir = await Directory.systemTemp.createTemp('ots_bundle_');
   final contentDir = Directory(p.join(rootDir.path, 'content'));
   await contentDir.create(recursive: true);
 
   final config = OpentoolfileConfig(
     name: name,
+    tag: tag,
     os: SystemUtil.getOS(),
     cpuArch: SystemUtil.getCpuArch(),
     build: OpenToolBuild(args: const {}, runs: const []),

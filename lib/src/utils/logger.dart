@@ -4,7 +4,7 @@ import '../config.dart';
 
 enum LogModule { http, sse, manage, server, tool }
 
-DaemonLogger logger = DaemonLogger(config.log?.level??Level.INFO);
+DaemonLogger logger = DaemonLogger(config.log?.level ?? Level.INFO);
 
 class DaemonLogger {
   static final DaemonLogger _singleton = DaemonLogger._internal();
@@ -21,7 +21,9 @@ class DaemonLogger {
   DaemonLogger._internal() {
     _logger = Logger('OpenToolDaemonLogger');
     Logger.root.level = _level;
-    _logFile = File('${Directory.current.path}${Platform.pathSeparator}log${Platform.pathSeparator}daemon.log');
+    _logFile = File(
+      '${Directory.current.path}${Platform.pathSeparator}log${Platform.pathSeparator}daemon.log',
+    );
     _logFile.createSync(recursive: true);
 
     Logger.root.onRecord.listen((record) {
@@ -32,7 +34,12 @@ class DaemonLogger {
     });
   }
 
-  void log(LogModule module, String message, {String detail = "{}", Level level = Level.INFO}) {
+  void log(
+    LogModule module,
+    String message, {
+    String detail = "{}",
+    Level level = Level.INFO,
+  }) {
     _logger?.log(level, "[${module.name.toUpperCase()}] $message - $detail");
   }
 }

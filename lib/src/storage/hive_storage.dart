@@ -56,6 +56,18 @@ class HiveServerStorage implements Storage<ServerDao> {
 
   late Box<ServerDao> _box;
 
+  ServerDao _detach(ServerDao serverDao, {required String id}) {
+    return ServerDao(
+      id: id,
+      alias: serverDao.alias,
+      registry: serverDao.registry,
+      repo: serverDao.repo,
+      name: serverDao.name,
+      tag: serverDao.tag,
+      internalId: serverDao.internalId,
+    );
+  }
+
   Future<void> init() async {
     Hive.registerAdapter(ServerDaoAdapter());
 
@@ -69,29 +81,81 @@ class HiveServerStorage implements Storage<ServerDao> {
 
   @override
   Future<void> add(ServerDao serverDao) async {
-    await _box.put(serverDao.id, serverDao);
+    await _box.put(serverDao.id, _detach(serverDao, id: serverDao.id));
   }
 
   @override
   Future<ServerDao?> get(String id) async {
-    return _box.get(id);
+    final direct = _box.get(id);
+    if (direct != null) {
+      if (direct.id != id) {
+        final repaired = _detach(direct, id: id);
+        await _box.put(id, repaired);
+        return _detach(repaired, id: id);
+      }
+      return _detach(direct, id: id);
+    }
+
+    // Fallback: locate entries where the stored field id matches.
+    final snapshot = _box.toMap();
+    for (final entry in snapshot.entries) {
+      final serverDao = entry.value;
+      if (serverDao.id != id) continue;
+      final repaired = _detach(serverDao, id: id);
+      await _box.delete(entry.key);
+      await _box.put(id, repaired);
+      return _detach(repaired, id: id);
+    }
+    return null;
   }
 
   @override
   Future<void> update(ServerDao serverDao) async {
-    await _box.put(serverDao.id, serverDao);
+    final existingKey = serverDao.key;
+    if (existingKey != null && existingKey != serverDao.id) {
+      await _box.delete(existingKey);
+    }
+    await _box.put(serverDao.id, _detach(serverDao, id: serverDao.id));
   }
 
   @override
   Future<ServerDao?> remove(String id) async {
-    final server = _box.get(id);
-    await _box.delete(id);
-    return server;
+    final direct = _box.get(id);
+    if (direct != null) {
+      await _box.delete(id);
+      return _detach(direct, id: id);
+    }
+
+    final snapshot = _box.toMap();
+    for (final entry in snapshot.entries) {
+      final serverDao = entry.value;
+      if (serverDao.id != id) continue;
+      await _box.delete(entry.key);
+      return _detach(serverDao, id: id);
+    }
+
+    return null;
   }
 
   @override
   Future<List<ServerDao>> list() async {
-    return _box.values.toList();
+    final snapshot = _box.toMap();
+    final Map<String, ServerDao> byId = {};
+
+    for (final entry in snapshot.entries) {
+      final serverDao = entry.value;
+      final id = serverDao.id;
+      if (entry.key != id) {
+        final repaired = _detach(serverDao, id: id);
+        await _box.delete(entry.key);
+        await _box.put(id, repaired);
+        byId[id] = _detach(repaired, id: id);
+        continue;
+      }
+      byId[id] = _detach(serverDao, id: id);
+    }
+
+    return byId.values.toList();
   }
 }
 

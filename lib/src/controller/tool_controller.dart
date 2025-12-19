@@ -400,17 +400,38 @@ class ToolController {
       unawaited(streamController.close());
     }
 
-    toolService.streamCall(toolId, functionCall, (String event, ToolReturn toolReturn) {
-      _pushData(
-        streamController,
-        event,
-        jsonEncode(payload),
-        logMessage: "streamCallTool.push",
-      );
-      if (event == EventType.DONE || event == EventType.ERROR) {
-        closeStream();
-      }
-    });
+    unawaited(
+      toolService
+          .streamCall(toolId, functionCall, (
+            String event,
+            ToolReturn toolReturn,
+          ) {
+            _pushData(
+              streamController,
+              event,
+              jsonEncode(toolReturn.toJson()),
+              logMessage: "streamCallTool.push",
+            );
+            if (event == EventType.DONE || event == EventType.ERROR) {
+              closeStream();
+            }
+          })
+          .catchError((Object error, StackTrace stackTrace) {
+            _pushData(
+              streamController,
+              EventType.ERROR,
+              jsonEncode({'error': error.toString()}),
+              logMessage: "streamCallTool.error",
+            );
+            logger.log(
+              LogModule.tool,
+              "streamCall.error",
+              detail: "toolId: $toolId, error: $error\n$stackTrace",
+              level: Level.WARNING,
+            );
+            closeStream();
+          }),
+    );
     return Response.ok(
       streamController.stream,
       headers: STREAM_HEADERS,

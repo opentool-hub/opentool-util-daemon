@@ -5,6 +5,7 @@ import 'package:opentool_daemon/src/controller/tool_controller.dart';
 import 'package:opentool_daemon/src/service/config.dart';
 import 'package:opentool_daemon/src/service/manage_service.dart';
 import 'package:opentool_daemon/src/service/model.dart';
+import 'package:opentool_dart/opentool_client.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 import '../test_doubles.dart';
@@ -41,6 +42,9 @@ void main() {
             status: ToolStatusType.NOT_RUNNING,
           ),
         ],
+        toolReturns: {
+          'tool-1': ToolReturn(id: 'call-1', result: {'marker': 'from-tool'}),
+        },
       );
       serverService = FakeServerService(
         initialServers: [
@@ -139,6 +143,21 @@ void main() {
       expect(decoded['alias'], equals('gamma'));
       final tool = await toolService.get('tool-1');
       expect(tool.alias, equals('gamma'));
+    });
+
+    test('streamCallTool streams tool return payloads', () async {
+      final request = Request(
+        'POST',
+        Uri.parse('http://localhost/opentool-daemon/tools/tool-1/streamCall'),
+        body: jsonEncode({'id': 'call-1', 'name': 'count', 'arguments': {}}),
+      );
+
+      final response = await controller.streamCallTool(request, 'tool-1');
+      final body = await response.readAsString();
+
+      expect(body, contains('event:${EventType.DATA}'));
+      expect(body, contains('"marker":"from-tool"'));
+      expect(body, isNot(contains('"name":"count"')));
     });
   });
 }

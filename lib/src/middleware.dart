@@ -32,8 +32,15 @@ Middleware logRequest() {
       String method = request.method;
       String uri = request.requestedUri.toString();
       String body = await request.readAsString();
-      logger.log(LogModule.http, "logRequest", detail: "[$method] $uri $body", level: Level.FINE);
-      Request newRequest = request.change(body: Stream.value(utf8.encode(body)));
+      logger.log(
+        LogModule.http,
+        "logRequest",
+        detail: "[$method] $uri $body",
+        level: Level.FINE,
+      );
+      Request newRequest = request.change(
+        body: Stream.value(utf8.encode(body)),
+      );
       return innerHandler(newRequest);
     };
   };

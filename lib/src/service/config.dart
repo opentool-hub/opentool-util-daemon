@@ -8,8 +8,9 @@ part 'config.g.dart';
 class OpentoolfileConfigUtil {
   static Future<OpentoolfileConfig> fromFile(
     String name,
-    String opentoolfilePath,
-  ) async {
+    String opentoolfilePath, {
+    String? tag,
+  }) async {
     final source = await File(opentoolfilePath).readAsString();
     OpentoolfileParser parser = OpentoolfileParser(source);
     Map<String, String> args = await parser.getArgs();
@@ -36,6 +37,7 @@ class OpentoolfileConfigUtil {
 
     return OpentoolfileConfig(
       name: name,
+      tag: tag,
       os: os,
       cpuArch: cpuArch,
       build: build,
@@ -64,6 +66,7 @@ class OpentoolfileConfigUtil {
 
     return OpentoolfileConfig(
       name: rawConfig.name,
+      tag: rawConfig.tag,
       os: rawConfig.os,
       cpuArch: rawConfig.cpuArch,
       build: OpenToolBuild(args: resolvedArgs, runs: resolvedRuns),
@@ -94,6 +97,7 @@ class OpentoolfileConfigUtil {
 @JsonSerializable(includeIfNull: false, explicitToJson: true)
 class OpentoolfileConfig {
   String name;
+  String? tag;
   String os;
   String cpuArch;
   OpenToolBuild build;
@@ -101,6 +105,7 @@ class OpentoolfileConfig {
 
   OpentoolfileConfig({
     required this.name,
+    this.tag,
     required this.os,
     required this.cpuArch,
     required this.build,

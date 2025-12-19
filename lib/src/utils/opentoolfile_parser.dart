@@ -1,10 +1,10 @@
 class InstructNameType {
-  static const String ARG = 'ARG';  // for build mode
-  static const String ENV = 'ENV';  // for run mode
-  static const String RUN = 'RUN';  // script for build mode
-  static const String WORKDIR = 'WORKDIR';  // work dir for run mode
-  static const String ENTRYPOINT = 'ENTRYPOINT';  // command for run mode
-  static const String CMD = 'CMD';  // default command arguments for run mode
+  static const String ARG = 'ARG'; // for build mode
+  static const String ENV = 'ENV'; // for run mode
+  static const String RUN = 'RUN'; // script for build mode
+  static const String WORKDIR = 'WORKDIR'; // work dir for run mode
+  static const String ENTRYPOINT = 'ENTRYPOINT'; // command for run mode
+  static const String CMD = 'CMD'; // default command arguments for run mode
 }
 
 class Instruction {
@@ -14,7 +14,13 @@ class Instruction {
   final String? blockComment;
   final String? inlineComment;
 
-  Instruction(this.name, this.args, this.line, {this.blockComment, this.inlineComment});
+  Instruction(
+    this.name,
+    this.args,
+    this.line, {
+    this.blockComment,
+    this.inlineComment,
+  });
 }
 
 /// Represents the runtime context used for variable expansion.
@@ -69,7 +75,7 @@ class OpentoolfileParser {
 
   String? getWorkdir() {
     final instr = _instructions.lastWhere(
-          (i) => i.name == InstructNameType.WORKDIR,
+      (i) => i.name == InstructNameType.WORKDIR,
       orElse: () => Instruction('NONE', [], 0),
     );
     return instr.args.isNotEmpty ? instr.args.join(' ') : null;
@@ -77,7 +83,7 @@ class OpentoolfileParser {
 
   String? getEntrypoint() {
     final instr = _instructions.lastWhere(
-          (i) => i.name == InstructNameType.ENTRYPOINT,
+      (i) => i.name == InstructNameType.ENTRYPOINT,
       orElse: () => Instruction('NONE', [], 0),
     );
     return instr.args.isNotEmpty ? instr.args.first : null;
@@ -85,7 +91,7 @@ class OpentoolfileParser {
 
   List<String> getCmd() {
     final instr = _instructions.lastWhere(
-          (i) => i.name == InstructNameType.CMD,
+      (i) => i.name == InstructNameType.CMD,
       orElse: () => Instruction('NONE', [], 0),
     );
     return instr.args;
@@ -130,13 +136,15 @@ class OpentoolfileParser {
       final name = parts.first.toUpperCase();
       final args = parts.skip(1).toList();
 
-      result.add(Instruction(
-        name,
-        args,
-        i + 1,
-        blockComment: lastBlockComment,
-        inlineComment: inlineComment,
-      ));
+      result.add(
+        Instruction(
+          name,
+          args,
+          i + 1,
+          blockComment: lastBlockComment,
+          inlineComment: inlineComment,
+        ),
+      );
 
       lastBlockComment = null;
     }

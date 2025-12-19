@@ -7,10 +7,7 @@ class LoginFailedException implements Exception {
   final String code;
   final String message;
 
-  LoginFailedException({
-    required this.code,
-    required this.message,
-  });
+  LoginFailedException({required this.code, required this.message});
 
   Map<String, dynamic> toJson() => _$LoginFailedExceptionToJson(this);
 }

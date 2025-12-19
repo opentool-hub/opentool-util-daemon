@@ -63,6 +63,7 @@ class ServerService {
     OpentoolfileConfig rawConfig = await OpentoolfileConfigUtil.fromFile(
       name,
       opentoolfilePath,
+      tag: tag ?? NULL_TAG,
     );
 
     /// 2. run commands
@@ -337,7 +338,7 @@ class ServerService {
       registry: NULL_REGISTRY,
       repo: NULL_REPO,
       name: opentoolfileConfig.name,
-      tag: NULL_TAG,
+      tag: opentoolfileConfig.tag ?? NULL_TAG,
       internalId: internalId,
     );
     await _cacheServerStorage.list();
@@ -364,39 +365,34 @@ class ServerService {
       detail: "serverId: $serverId, tag: ${tag ?? NULL_TAG}",
     );
 
-    /// add tag
+    /// retag in place (serverId stays stable)
     ServerDao? serverDao = await _cacheServerStorage.get(serverId);
     if (serverDao == null) throw ServerNotFoundException(serverId);
-    String newTag = tag ?? NULL_TAG;
-    String internalId = serverDao.internalId;
-    List<ServerDao> serverDaoList = await _cacheServerStorage.list();
-    List<ServerDao> serverDaoListWithSameInternalId = serverDaoList
-        .where((serverDao) => serverDao.internalId == internalId)
-        .toList();
-    int index = serverDaoListWithSameInternalId.indexWhere(
-      (currServerDao) => currServerDao.tag == newTag,
-    );
-    if (index < 0) {
-      String newId = uniqueId();
-      ServerDao newServerDao = serverDao;
-      newServerDao.id = newId;
-      newServerDao.alias = newId;
-      newServerDao.tag = newTag;
-      await _cacheServerStorage.add(newServerDao);
+    final newTag = tag ?? NULL_TAG;
+    if (serverDao.tag == newTag) {
       logger.log(
         LogModule.server,
-        "tag.created",
-        detail: "serverId: $newId, tag: $newTag",
+        "tag.noop",
+        detail: "serverId: ${serverDao.id}, tag: ${serverDao.tag}",
       );
-      return ServerModel.fromDao(newServerDao);
+      return ServerModel.fromDao(serverDao);
     }
-    ServerDao existedServerDao = serverDaoListWithSameInternalId[index];
+
+    serverDao.tag = newTag;
+    await _cacheServerStorage.update(serverDao);
+
+    await _removeServersByNameAndTag(
+      serverDao.name,
+      newTag,
+      excludeServerId: serverDao.id,
+    );
+
     logger.log(
       LogModule.server,
-      "tag.reused",
-      detail: "serverId: ${existedServerDao.id}, tag: ${existedServerDao.tag}",
+      "tag.updated",
+      detail: "serverId: ${serverDao.id}, tag: ${serverDao.tag}",
     );
-    return ServerModel.fromDao(existedServerDao);
+    return ServerModel.fromDao(serverDao);
   }
 
   Future<void> setAlias(String serverId, String newName) async {

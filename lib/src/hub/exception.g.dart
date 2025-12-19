@@ -7,8 +7,5 @@ part of 'exception.dart';
 // **************************************************************************
 
 Map<String, dynamic> _$LoginFailedExceptionToJson(
-        LoginFailedException instance) =>
-    <String, dynamic>{
-      'code': instance.code,
-      'message': instance.message,
-    };
+  LoginFailedException instance,
+) => <String, dynamic>{'code': instance.code, 'message': instance.message};

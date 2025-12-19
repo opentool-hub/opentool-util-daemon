@@ -63,23 +63,68 @@ void main() {
       );
     });
 
-    test('refreshStatusesOnStartup marks unreachable tools as NOT_RUNNING',
-        () async {
-      service = ToolService(
-        hiveToolStorage,
-        clientFactory: (toolDao) => _TestOpenToolClient(
-          reachable: toolDao.id == 'tool-1',
-        ),
-      );
+    test(
+      'refreshStatusesOnStartup marks unreachable tools as NOT_RUNNING',
+      () async {
+        service = ToolService(
+          hiveToolStorage,
+          clientFactory: (toolDao) =>
+              _TestOpenToolClient(reachable: toolDao.id == 'tool-1'),
+        );
 
-      await service.refreshStatusesOnStartup();
+        await service.refreshStatusesOnStartup();
 
-      final running = await hiveToolStorage.get('tool-1');
-      final stopped = await hiveToolStorage.get('tool-2');
+        final running = await hiveToolStorage.get('tool-1');
+        final stopped = await hiveToolStorage.get('tool-2');
 
-      expect(running!.status, equals(ToolStatusType.RUNNING));
-      expect(stopped!.status, equals(ToolStatusType.NOT_RUNNING));
-    });
+        expect(running!.status, equals(ToolStatusType.RUNNING));
+        expect(stopped!.status, equals(ToolStatusType.NOT_RUNNING));
+      },
+    );
+
+    test(
+      'call does not mark tool NOT_RUNNING for OpenToolServerCallException',
+      () async {
+        service = ToolService(
+          hiveToolStorage,
+          clientFactory: (_) =>
+              _ThrowingCallClient(OpenToolServerCallException('boom')),
+        );
+
+        await expectLater(
+          service.call(
+            'tool-1',
+            FunctionCall(id: 'call-1', name: 'count', arguments: const {}),
+          ),
+          throwsA(isA<OpenToolServerCallException>()),
+        );
+
+        final tool = await hiveToolStorage.get('tool-1');
+        expect(tool!.status, equals(ToolStatusType.RUNNING));
+      },
+    );
+
+    test(
+      'call marks tool NOT_RUNNING for OpenToolServerNoAccessException',
+      () async {
+        service = ToolService(
+          hiveToolStorage,
+          clientFactory: (_) =>
+              _ThrowingCallClient(OpenToolServerNoAccessException()),
+        );
+
+        await expectLater(
+          service.call(
+            'tool-1',
+            FunctionCall(id: 'call-1', name: 'count', arguments: const {}),
+          ),
+          throwsA(isA<OpenToolServerNoAccessException>()),
+        );
+
+        final tool = await hiveToolStorage.get('tool-1');
+        expect(tool!.status, equals(ToolStatusType.NOT_RUNNING));
+      },
+    );
   });
 }
 
@@ -87,13 +132,25 @@ class _TestOpenToolClient extends OpenToolClient {
   final bool reachable;
 
   _TestOpenToolClient({required this.reachable})
-      : super(toolHost: '127.0.0.1', toolPort: 8080);
+    : super(toolHost: '127.0.0.1', toolPort: 8080);
 
   @override
   Future<Version> version() async {
     if (!reachable) {
-      throw Exception('connection refused');
+      throw OpenToolServerNoAccessException();
     }
     return Version(version: '0.0.0');
+  }
+}
+
+class _ThrowingCallClient extends OpenToolClient {
+  final Object error;
+
+  _ThrowingCallClient(this.error)
+    : super(toolHost: '127.0.0.1', toolPort: 8080);
+
+  @override
+  Future<ToolReturn> call(FunctionCall functionCall) async {
+    throw error;
   }
 }

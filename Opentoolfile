@@ -1,9 +1,6 @@
 # env: info
 ARG DEFAULT_LOG=info
 ENV LOG_LEVEL=$DEFAULT_LOG
-# env: port
-ARG DEFAULT_PORT=9628
-ENV PORT=$DEFAULT_PORT
 
 # build
 RUN dart pub get
@@ -13,4 +10,4 @@ RUN cp mock-tool.json build/mock-tool.json
 # run
 WORKDIR build
 ENTRYPOINT ["mock_tool"]
-CMD ["--log $LOG_LEVEL", "--port $PORT"]
+CMD ["--log $LOG_LEVEL"]

@@ -8,6 +8,7 @@ import '../constants.dart';
 import '../storage/cache_storage.dart';
 import '../storage/hive_storage.dart';
 import '../storage/dao.dart';
+import '../utils/executable_util.dart';
 import 'config.dart';
 import 'exception.dart';
 import 'model.dart';
@@ -29,7 +30,11 @@ class ToolService {
   }
 
   Future<void> refreshStatusesOnStartup() async {
-    logger.log(LogModule.tool, "refreshStatusesOnStartup.start", detail: "initializing tool status cache");
+    logger.log(
+      LogModule.tool,
+      "refreshStatusesOnStartup.start",
+      detail: "initializing tool status cache",
+    );
     final List<ToolDao> toolDaos = await _cacheToolStorage.list();
     for (final toolDao in toolDaos) {
       if (toolDao.status != ToolStatusType.RUNNING) continue;
@@ -47,7 +52,11 @@ class ToolService {
         );
       }
     }
-    logger.log(LogModule.tool, "refreshStatusesOnStartup.done", detail: "checked: ${toolDaos.length}");
+    logger.log(
+      LogModule.tool,
+      "refreshStatusesOnStartup.done",
+      detail: "checked: ${toolDaos.length}",
+    );
   }
 
   /// Lists tools known to the daemon. Set [all] to true to include stopped tools.
@@ -116,7 +125,10 @@ class ToolService {
     );
     OpentoolfileConfig config = OpentoolfileConfigUtil.resolve(rawConfig);
     String workdir = _resolveWorkdir(toolFolder, config.run.workdir);
-    String entrypoint = _resolveEntrypoint(workdir, config.run.entrypoint);
+    String entrypoint = ExecutableUtil.resolveEntrypoint(
+      workdir,
+      config.run.entrypoint,
+    );
     List<String> cmds = List<String>.from(config.run.cmds);
 
     String tag = server.tag;
@@ -138,7 +150,7 @@ class ToolService {
     cmds.add("--$CLI_ARGUMENT_APIKEYS $apiKey");
 
     unawaited(
-      _ensureExecutable(entrypoint, workdir).then((_) {
+      ExecutableUtil.ensureExecutable(entrypoint, workdir).then((_) {
         return CommandUtil.runStream(
           workdir,
           entrypoint,
@@ -192,7 +204,10 @@ class ToolService {
     );
     OpentoolfileConfig config = OpentoolfileConfigUtil.resolve(rawConfig);
     String workdir = _resolveWorkdir(toolFolder, config.run.workdir);
-    String entrypoint = _resolveEntrypoint(workdir, config.run.entrypoint);
+    String entrypoint = ExecutableUtil.resolveEntrypoint(
+      workdir,
+      config.run.entrypoint,
+    );
     List<String> cmds = List<String>.from(config.run.cmds);
 
     String tag = tool.tag;
@@ -209,7 +224,7 @@ class ToolService {
     cmds.add("--$CLI_ARGUMENT_APIKEYS $apiKey");
 
     unawaited(
-      _ensureExecutable(entrypoint, workdir).then((_) {
+      ExecutableUtil.ensureExecutable(entrypoint, workdir).then((_) {
         return CommandUtil.runStream(
           workdir,
           entrypoint,
@@ -298,7 +313,9 @@ class ToolService {
       "call.input",
       detail: "toolId: $toolId, function: ${functionCall.name}",
     );
-    ToolReturn? toolReturn = await _checkThenRun<ToolReturn?>(toolId, (client) async {
+    ToolReturn? toolReturn = await _checkThenRun<ToolReturn?>(toolId, (
+      client,
+    ) async {
       ToolReturn? toolReturn = await client.call(functionCall);
       return toolReturn;
     });
@@ -368,13 +385,17 @@ class ToolService {
     OpenToolClient client = _clients[toolId] ?? _registerClient(toolDao);
     try {
       return await onRun(client);
-    } catch (e) {
-      toolDao.status = ToolStatusType.NOT_RUNNING;
-      await _cacheToolStorage.update(toolDao);
+    } catch (error, stackTrace) {
+      final shouldMarkNotRunning =
+          error is OpenToolServerNoAccessException || error is SocketException;
+      if (shouldMarkNotRunning) {
+        toolDao.status = ToolStatusType.NOT_RUNNING;
+        await _cacheToolStorage.update(toolDao);
+      }
       logger.log(
         LogModule.tool,
         "check.error",
-        detail: "toolId: $toolId, error: $e",
+        detail: "toolId: $toolId, error: $error\n$stackTrace",
       );
       rethrow;
     }
@@ -407,33 +428,5 @@ class ToolService {
       return candidate;
     }
     return baseFolder;
-  }
-
-  String _resolveEntrypoint(String workdir, String entrypoint) {
-    if (entrypoint.isEmpty) return entrypoint;
-    if (entrypoint.startsWith('/') ||
-        entrypoint.startsWith('./') ||
-        entrypoint.startsWith('../')) {
-      return entrypoint;
-    }
-    final String candidatePath = p.join(workdir, entrypoint);
-    if (File(candidatePath).existsSync()) {
-      return './$entrypoint';
-    }
-    return entrypoint;
-  }
-
-  Future<void> _ensureExecutable(String entrypoint, String workdir) async {
-    if (entrypoint.isEmpty) return;
-    if (!entrypoint.startsWith('./')) return;
-    final String executableName = entrypoint.substring(2);
-    final String absolutePath = p.join(workdir, executableName);
-    final File executable = File(absolutePath);
-    if (!await executable.exists()) return;
-    final FileStat stat = await executable.stat();
-    final bool isExecutable = stat.mode & 0x49 != 0;
-    if (!isExecutable) {
-      await Process.run('chmod', ['+x', absolutePath]);
-    }
   }
 }

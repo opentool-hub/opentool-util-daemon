@@ -170,7 +170,24 @@ class FakeToolService implements ToolService {
     String toolId,
     FunctionCall functionCall,
     void Function(String event, ToolReturn toolReturn) onToolReturn,
-  ) async {}
+  ) async {
+    onToolReturn(
+      EventType.START,
+      ToolReturn(id: functionCall.id, result: {'start': functionCall.name}),
+    );
+
+    final returnValue =
+        toolReturns[toolId] ??
+        ToolReturn(id: functionCall.id, result: {'result': null});
+    onToolReturn(EventType.DATA, returnValue);
+    onToolReturn(
+      EventType.DONE,
+      ToolReturn(
+        id: functionCall.id,
+        result: {EventType.DONE: functionCall.name},
+      ),
+    );
+  }
 
   @override
   Future<void> refreshStatusesOnStartup() async {}

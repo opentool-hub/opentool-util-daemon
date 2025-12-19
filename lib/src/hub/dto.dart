@@ -7,12 +7,10 @@ class LoginInfo {
   final String username;
   final String password;
 
-  LoginInfo({
-    required this.username,
-    required this.password,
-  });
+  LoginInfo({required this.username, required this.password});
 
-  factory LoginInfo.fromJson(Map<String, dynamic> json) => _$LoginInfoFromJson(json);
+  factory LoginInfo.fromJson(Map<String, dynamic> json) =>
+      _$LoginInfoFromJson(json);
 
   Map<String, dynamic> toJson() => _$LoginInfoToJson(this);
 }
@@ -22,12 +20,10 @@ class LoginResult {
   final String token;
   final String repo;
 
-  LoginResult({
-    required this.token,
-    required this.repo,
-  });
+  LoginResult({required this.token, required this.repo});
 
-  factory LoginResult.fromJson(Map<String, dynamic> json) => _$LoginResultFromJson(json);
+  factory LoginResult.fromJson(Map<String, dynamic> json) =>
+      _$LoginResultFromJson(json);
 
   Map<String, dynamic> toJson() => _$LoginResultToJson(this);
 }
@@ -44,7 +40,8 @@ class PushResult {
     required this.location,
   });
 
-  factory PushResult.fromJson(Map<String, dynamic> json) => _$PushResultFromJson(json);
+  factory PushResult.fromJson(Map<String, dynamic> json) =>
+      _$PushResultFromJson(json);
 
   Map<String, dynamic> toJson() => _$PushResultToJson(this);
 }
@@ -54,12 +51,10 @@ class Manifest {
   final String fileName;
   final ManifestConfig config;
 
-  Manifest({
-    required this.fileName,
-    required this.config,
-  });
+  Manifest({required this.fileName, required this.config});
 
-  factory Manifest.fromJson(Map<String, dynamic> json) => _$ManifestFromJson(json);
+  factory Manifest.fromJson(Map<String, dynamic> json) =>
+      _$ManifestFromJson(json);
 
   Map<String, dynamic> toJson() => _$ManifestToJson(this);
 }
@@ -69,12 +64,10 @@ class ManifestConfig {
   final String digest;
   final int size;
 
-  ManifestConfig({
-    required this.digest,
-    required this.size,
-  });
+  ManifestConfig({required this.digest, required this.size});
 
-  factory ManifestConfig.fromJson(Map<String, dynamic> json) => _$ManifestConfigFromJson(json);
+  factory ManifestConfig.fromJson(Map<String, dynamic> json) =>
+      _$ManifestConfigFromJson(json);
 
   Map<String, dynamic> toJson() => _$ManifestConfigToJson(this);
 }

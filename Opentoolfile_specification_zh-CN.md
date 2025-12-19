@@ -16,14 +16,12 @@ build文件：Opentoolfile
 ```
 ARG DEFAULT_LOG=info
 ENV LOG_LEVEL=$DEFAULT_LOG
-ARG DEFAULT_PORT=9628
-ENV PORT=$DEFAULT_PORT
 RUN dart pub get
 RUN dart compile exe bin/mock_tool.dart -o build/mock_tool
 RUN cp mock-tool.json build/mock-tool.json
 WORKDIR build
 ENTRYPOINT ["mock_tool"]
-CMD ["--log $LOG_LEVEL", "--port $PORT"]
+CMD ["--log $LOG_LEVEL"]
 ```
 
 ## 构建
@@ -31,7 +29,7 @@ CMD ["--log $LOG_LEVEL", "--port $PORT"]
 opentool build -t mock_tool:1.0.0
 ```
 将会执行：
-1. 找到同步路下Opentoolfile文件
+1. 找到同目录下的 Opentoolfile 文件
 2. 执行Opentoolfile文件中的RUN命令行，执行前，会替换掉ARG和ENV变量
    执行其中的命令行
     ```bash
@@ -39,26 +37,13 @@ opentool build -t mock_tool:1.0.0
     dart compile exe bin/mock_tool.dart -o build/mock_tool
     cp mock-tool.json build/mock-tool.json
     ```
-3. 创建一份`metadata.json`，内容如下：
-    ```json
-    {
-        "id": "<SERVER_ID>",
-        "alias": "<SERVER_ID>",
-        "registry": "native",
-        "repo": "native",
-        "name": "mock_tool",
-        "tag": "1.0.0",
-        "os": "macos",
-        "cpuArch": "arm64"
-    }
-    ```
+3. 不再生成独立的 `metadata.json`；相关信息会写入 `Opentoolfile.json`。
 4. 创建一份`OpentoolConfig`，内容如下：
     ```json
     {
       "build": {
         "args": {
-          "DEFAULT_LOG": "info",
-          "DEFAULT_PORT": "9628"
+          "DEFAULT_LOG": "info"
         },
         "run": [
            "dart pub get",
@@ -68,23 +53,21 @@ opentool build -t mock_tool:1.0.0
       },
       "run": {
         "envs": {
-          "LOG_LEVEL": "$DEFAULT_LOG",
-          "PORT": "$DEFAULT_PORT"
+          "LOG_LEVEL": "$DEFAULT_LOG"
         },
         "workdir": "./build",
         "entrypoint": "mock_tool",
         "cmds": [
-          "--log $LOG_LEVEL", 
-          "--port $PORT" 
+          "--log $LOG_LEVEL"
         ]
       }
     }
     ```
-5. 把了一份`{WORKDIR}`文件夹、`metadata.json`、`Opentoolfile`，复制到OpenTool的系统目录中 `~/.opentool/servers/{repo}/{name}/{tag}/`，例如：`~/.opentool/servers/native/mock_tool/1.0.0/`
+5. 将 `{WORKDIR}` 文件夹与 `Opentoolfile.json` 打包为 `~/.opentool/servers/<name>-<id>.ots`（无 metadata.json、无 {repo}/{name}/{tag} 目录层级）
 6. 更多：
   - 如果不写{tag}, 则默认为`latest`
   - 如果tag与现有的重复，则直接覆盖
-  - 如果没有登录opentool-hub，则`{repo}`为`<none>`
+   - 如果没有登录opentool-hub，则`{repo}`为`<none>`
 
 ## 查看
 ```bash
@@ -100,26 +83,20 @@ opentool run mock_tool:1.0.0
 1. 解析OpenTool系统目录下的`Opentoolfile`
 2. OpenTool系统目录的`{WORKDIR}`作为执行目录
 3. `{ENTRYPOINT}`指定的命令行，并执行`{CMD}`指定的参数
-4. 增加OpenTool系统指定的参数，包括：
-    ```
-    --toolHost: 用于指定host，控制网络可访问的范围
-    --toolPort: 用于指定port，确保端口与其他OpenTool Server的端口不冲突
-    --toolApiKeys: 用于指定apiKeys，确保该Tool的安全访问
-    ```
+4. 守护进程自动附加参数（如 host/port/apiKey），无需在 Opentoolfile 中配置默认端口。
 
 ## 导出
 ```bash
 opentool export mock_tool:1.0.0
 ```
 将会执行：
-1. 把`~/.opentool/servers/{repo}/{name}/{tag}/`完整zip成文件`{repo}-{name}-{tag}-{os}-{cpuArch}.otpkg`，例如`native-mock_tool-1.0.0-macos-arm64.otpkg`
-2. 把`otpkg`文件，移动到用户执行的当前路径
+1. 将 `~/.opentool/servers/<name>-<id>.ots` 拷贝/重命名为 `{name}-{tag}-{os}-{cpuArch}.ots`
+2. 将 `.ots` 文件移动到当前路径
 
 ## 导入
 ```bash
-opentool import ./native-mock_tool-1.0.0-macos-arm64.otpkg
+opentool import ./native-mock_tool-1.0.0-macos-arm64.ots
 ```
 将会执行：
-1. 解压到系统临时文件夹，文件夹名为：native-mock_tool-1.0.0-macos-arm64
-    - 文件夹下有`metadata.json`、`Opentoolfile`、`{WORKDIR}`
-2. 解析`metadata.json`，且移动到OpenTool系统目录下：`~/.opentool/servers/{repo}/{name}/{tag}/`，重名则覆盖
+1. 解压到系统临时文件夹（同名目录），目录下包含 `build/` 与 `Opentoolfile.json`。
+2. 校验 `Opentoolfile.json` 中的 `os` 和 `cpuArch`；通过后将原始 `.ots` 拷贝到 `~/.opentool/servers/<name>-<id>.ots` 并注册一条 server 记录（tag 缺省为 `latest`）。

@@ -4,10 +4,8 @@ import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:opentool_daemon/opentool_daemon_utils.dart';
 
-typedef _CommandRunner = Future<ProcessResult> Function(
-  String executable,
-  List<String> arguments,
-);
+typedef _CommandRunner =
+    Future<ProcessResult> Function(String executable, List<String> arguments);
 typedef _TokenGenerator = String Function();
 
 class SudoRequiredException implements Exception {
@@ -31,9 +29,9 @@ class SudoPlatformContext {
   });
 
   factory SudoPlatformContext.system() => SudoPlatformContext(
-        isWindows: Platform.isWindows,
-        environment: Platform.environment,
-      );
+    isWindows: Platform.isWindows,
+    environment: Platform.environment,
+  );
 }
 
 class SudoUtil {
@@ -46,11 +44,10 @@ class SudoUtil {
     _CommandRunner? commandRunner,
     SudoPlatformContext? platform,
     _TokenGenerator? tokenGenerator,
-  })  : _commandRunner = commandRunner ??
-            ((cmd, args) => Process.run(cmd, args)),
-        _platform = platform ?? SudoPlatformContext.system(),
-        _tokenGenerator =
-            tokenGenerator ?? (() => uniqueId(shorter: false));
+  }) : _commandRunner =
+           commandRunner ?? ((cmd, args) => Process.run(cmd, args)),
+       _platform = platform ?? SudoPlatformContext.system(),
+       _tokenGenerator = tokenGenerator ?? (() => uniqueId(shorter: false));
 
   /// Verifies the current process has sudo/Administrator privileges.
   Future<void> ensureSudo() async {
@@ -80,10 +77,11 @@ class SudoUtil {
   Future<bool> _isWindowsAdministrator() async {
     final script =
         '[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)';
-    final result = await _commandRunner(
-      'powershell',
-      ['-NoProfile', '-Command', script],
-    );
+    final result = await _commandRunner('powershell', [
+      '-NoProfile',
+      '-Command',
+      script,
+    ]);
     if (result.exitCode != 0) return false;
     return result.stdout.toString().trim().toLowerCase() == 'true';
   }
@@ -111,7 +109,7 @@ class SudoUtil {
       final content = await File(socketPath).readAsString();
       final Map<String, dynamic> json = jsonDecode(content);
       return SudoTokenPayload.fromJson(json);
-    } catch (error, stackTrace) {
+    } catch (error) {
       logger.log(
         LogModule.manage,
         'sudoToken.read.failed',

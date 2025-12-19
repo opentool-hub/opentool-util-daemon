@@ -2,7 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 
 class JsonFileUtil {
-  static Future<void> saveToFile(Map<String, dynamic> jsonObject, String dirPath, String fileName) async {
+  static Future<void> saveToFile(
+    Map<String, dynamic> jsonObject,
+    String dirPath,
+    String fileName,
+  ) async {
     final directory = Directory(dirPath);
 
     if (!await directory.exists()) {

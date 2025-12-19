@@ -1,6 +1,6 @@
 class ServerNotFoundException implements Exception {
   String id;
-  late String message ;
+  late String message;
 
   ServerNotFoundException(this.id) {
     this.message = 'Server with id $id not found';
@@ -14,7 +14,7 @@ class ServerNotFoundException implements Exception {
 
 class ToolNotFoundException implements Exception {
   String id;
-  late String message ;
+  late String message;
 
   ToolNotFoundException(this.id) {
     this.message = 'Tool with id $id not found';
@@ -27,7 +27,7 @@ class ToolNotFoundException implements Exception {
 }
 
 class OpentoolfileMissingArgumentException implements Exception {
-  late String message ;
+  late String message;
 
   OpentoolfileMissingArgumentException(String argName) {
     this.message = '$argName is missing';
@@ -40,7 +40,7 @@ class OpentoolfileMissingArgumentException implements Exception {
 }
 
 class LoginFailedException implements Exception {
-  late String message ;
+  late String message;
 
   LoginFailedException(String username) {
     this.message = 'Login failed: $username';
@@ -53,7 +53,7 @@ class LoginFailedException implements Exception {
 }
 
 class LoginRequiredException implements Exception {
-  late String message ;
+  late String message;
 
   LoginRequiredException() {
     this.message = 'Login Required';
@@ -66,10 +66,16 @@ class LoginRequiredException implements Exception {
 }
 
 class SystemMismatchException implements Exception {
-  late String message ;
+  late String message;
 
-  SystemMismatchException(String nativeOs, String nativeCpuArch, String remoteOs, String remoteCpuArch) {
-    this.message = 'System mismatch - native: $nativeOs-$nativeCpuArch, remote: $remoteOs-$remoteCpuArch';
+  SystemMismatchException(
+    String nativeOs,
+    String nativeCpuArch,
+    String remoteOs,
+    String remoteCpuArch,
+  ) {
+    this.message =
+        'System mismatch - native: $nativeOs-$nativeCpuArch, remote: $remoteOs-$remoteCpuArch';
   }
 
   @override

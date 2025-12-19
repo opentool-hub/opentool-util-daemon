@@ -8,17 +8,21 @@ import 'dto.dart';
 class HubClient {
   final Dio _dio;
 
-  HubClient(String baseUrl) : _dio = Dio(BaseOptions(
-    baseUrl: baseUrl,
-    connectTimeout: const Duration(seconds: 5),
-    receiveTimeout: const Duration(seconds: 5),
-    headers: {"Content-Type": "application/json"},
-  ));
+  HubClient(String baseUrl)
+    : _dio = Dio(
+        BaseOptions(
+          baseUrl: baseUrl,
+          connectTimeout: const Duration(seconds: 5),
+          receiveTimeout: const Duration(seconds: 5),
+          headers: {"Content-Type": "application/json"},
+        ),
+      );
 
   Future<LoginResult?> login(String username, String password) async {
     LoginInfo loginInfo = LoginInfo(username: username, password: password);
     try {
-      final response = await _dio.post("/v1/users/login/",
+      final response = await _dio.post(
+        "/v1/users/login/",
         data: jsonEncode(loginInfo.toJson()),
       );
       if (response.statusCode == 200) {
@@ -31,7 +35,6 @@ class HubClient {
       rethrow;
     }
   }
-
 
   Future<Manifest> pullManifest(String repo, String name, String tag) async {
     final url = "/v1/$repo/$name/manifests/$tag";
@@ -52,7 +55,12 @@ class HubClient {
     }
   }
 
-  Future<void> pullBlob(String repo, String digest, String savefilePath, {void Function(int download, int total)? onProgress}) async {
+  Future<void> pullBlob(
+    String repo,
+    String digest,
+    String savefilePath, {
+    void Function(int download, int total)? onProgress,
+  }) async {
     final url = "/v1/$repo/blobs/$digest";
 
     try {
@@ -60,9 +68,7 @@ class HubClient {
         url,
         options: Options(
           responseType: ResponseType.stream,
-          headers: {
-            "Accept": "application/octet-stream",
-          },
+          headers: {"Accept": "application/octet-stream"},
         ),
       );
 
@@ -83,7 +89,6 @@ class HubClient {
 
       await sink.close();
       print("\n✅ Download complete: $savefilePath");
-
     } on DioException catch (e) {
       print("❌ Pull blob failed: ${e.response?.statusCode}");
       print("Error body: ${e.response?.data}");
@@ -104,7 +109,12 @@ class HubClient {
     }
   }
 
-  Future<void> uploadBlob(String repo, String digest, List<int> bytes, {void Function(int sent, int total)? onProgress,}) async {
+  Future<void> uploadBlob(
+    String repo,
+    String digest,
+    List<int> bytes, {
+    void Function(int sent, int total)? onProgress,
+  }) async {
     final url = "/v1/$repo/blobs/$digest";
     try {
       final response = await _dio.put(
@@ -126,5 +136,4 @@ class HubClient {
       rethrow;
     }
   }
-
 }
