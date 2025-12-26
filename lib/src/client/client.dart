@@ -337,12 +337,17 @@ class DaemonClient {
     String serverId,
     String? hostType, {
     int timeoutSeconds = -1,
+    List<String>? extraCmds,
   }) async {
     final Map<String, dynamic> queryParameters = {
       'serverId': serverId,
       if (hostType != null && hostType.isNotEmpty) 'hostType': hostType,
       if (timeoutSeconds >= 0) 'timeout': '$timeoutSeconds',
     };
+    final Map<String, dynamic>? requestBody =
+        extraCmds != null && extraCmds.isNotEmpty
+        ? {'args': extraCmds}
+        : null;
     final completer = Completer<CommandResultDto>();
     StreamSubscription<String>? subscription;
     void completeWithError(Object error, [StackTrace? stack]) {
@@ -355,6 +360,7 @@ class DaemonClient {
       Stream<String> sseStream = await toolSse.request(
         '/create',
         queryParameters: queryParameters,
+        requestBody: requestBody,
       );
       void onEvent(String event, Map<String, dynamic> data) {
         if (event == EventType.DATA && !completer.isCompleted) {

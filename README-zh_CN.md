@@ -76,8 +76,8 @@ data:{"json":"payload"}
 
 ## 安全标头与令牌
 
-- `x-opentool-sudo-token`：单次有效的 sudo 令牌，用于保护 API Key 管理接口。需要管理员身份生成（CLI 会调用 `SudoUtil.ensureSudoAndWriteToken`）并将令牌写入 `~/.opentool/opentool-daemon.sudo`，之后把令牌值放入 `/apiKey*` 请求头。守护进程会验证并在成功后删除或过期该文件。
-- `x-opentool-api-key`：通过 `POST /apiKey` 生成的长期 API Key。访问 `/tools/listWithApiKeys` 等需要全局鉴权的接口时把此 Key 放入该头部。Key 会写入 `~/.opentool/api_keys.json`，可通过 `DELETE /apiKey/{apiKey}` 撤销。
+- `x-opentool-sudo-token`：单次有效的 sudo 令牌，用于保护 API Key 管理接口。需要管理员身份生成（CLI 会调用 `SudoUtil.ensureSudoAndWriteToken`）并将令牌写入 `~/.opentool/opentool-daemon.sudo`。没有任何 HTTP 接口可生成该令牌，因此纯 HTTP 客户端在未通过 CLI（且具备管理员权限）先拿到令牌前，无法调用 `/apiKey*`。之后把令牌值放入 `/apiKey*` 请求头；没有该令牌时相关 HTTP 调用会被拒绝（403）。守护进程会验证并在成功后删除或过期该文件。
+- `x-opentool-api-key`：通过 `POST /apiKey` 生成的长期 API Key。访问 `/tools/listWithApiKeys` 等需要全局鉴权的接口时把此 Key 放入该头部。Key 保存在 `~/.opentool/db` 下的 Hive 数据库（box 名 `api_keys`），可通过 `DELETE /apiKey/{apiKey}` 撤销。
 
 ---
 
@@ -231,6 +231,14 @@ SSE 事件示例：
 基于指定 Server 启动 Tool。SSE `event:DATA` 为标准输出，`event:ERROR` 为标准错误。守护进程会在 `~/.opentool/tools/{toolId}` 中创建工作目录，并分配端口与 API Key。可用查询参数：
 - `hostType`：`local`、`remote` 或留空（默认 `any`），用于传递给 Tool 运行时。
 - `timeout`：在 Tool 启动较慢时，SSE 连接在指定秒数后会主动关闭，但进程会继续在后台运行。
+
+可选请求体（会随 Tool 持久化，重启时继续追加）：
+```json
+{
+  "args": ["--foo bar", "--baz qux"]
+}
+```
+`args` 为字符串数组，会按顺序追加到 Opentoolfile 的 `CMD` 后，并保存到该 Tool；`POST /tools/{toolId}/start` 会复用这些参数。不能包含 `--opentoolServerTag` / `--opentoolServerHost` / `--opentoolServerPort` / `--opentoolServerApiKeys`，这些参数由守护进程自动注入，传入将返回 400。
 
 `POST /tools/{toolId}/start?timeout=20` 对应对已有 Tool 目录的重启，并共享上述 SSE 行为。
 

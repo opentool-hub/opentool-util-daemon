@@ -76,8 +76,8 @@ Use the client in `lib/src/client/client.dart` or any SSE-capable HTTP library t
 
 ## Security Headers & Tokens
 
-- `x-opentool-sudo-token`: single-use header that protects the API key endpoints. Generate a token as an administrator (the CLI calls `SudoUtil.ensureSudoAndWriteToken`) which writes `~/.opentool/opentool-daemon.sudo`. Pass the token value in requests to `/apiKey*`. The daemon validates the token against the file and deletes it (or expires it) after the first successful call.
-- `x-opentool-api-key`: persistent API keys created via `POST /apiKey`. Send the key in this header when accessing `/tools/listWithApiKeys` or any other API key-gated endpoint. Keys are stored under `~/.opentool/api_keys.json` and can be revoked via `DELETE /apiKey/{apiKey}`.
+- `x-opentool-sudo-token`: single-use header that protects the API key endpoints. Generate a token as an administrator (the CLI calls `SudoUtil.ensureSudoAndWriteToken`) which writes `~/.opentool/opentool-daemon.sudo`. There is no HTTP endpoint to mint this token, so a plain HTTP client cannot call `/apiKey*` until you first obtain the token via the CLI with sudo/admin privileges. Pass the token value in requests to `/apiKey*`; without it, API key management calls are rejected (403). The daemon validates the token against the file and deletes it (or expires it) after the first successful call.
+- `x-opentool-api-key`: persistent API keys created via `POST /apiKey`. Send the key in this header when accessing `/tools/listWithApiKeys` or any other API key-gated endpoint. Keys are stored in the Hive database under `~/.opentool/db` (box name `api_keys`) and can be revoked via `DELETE /apiKey/{apiKey}`.
 
 ---
 
@@ -225,6 +225,14 @@ Send any daemon API key via the header described earlier to receive the same too
 Starts a tool from the selected server. SSE events deliver command output (`event:DATA`) or errors (`event:ERROR`). The daemon allocates a new port, API key, and workspace under `~/.opentool/tools/{toolId}`. Optional query parameters:
 - `hostType`: `local`, `remote`, or omitted for `any` (pass-through to the tool runtime).
 - `timeout`: number of seconds before the daemon closes the SSE connection even if the tool keeps starting; the process continues in the background.
+
+Optional request body (persisted on the tool and reused on restart):
+```json
+{
+  "args": ["--foo bar", "--baz qux"]
+}
+```
+`args` is a string array appended after the Opentoolfile `CMD` and stored with the tool; `/tools/{toolId}/start` will reuse them. It must not include `--opentoolServerTag` / `--opentoolServerHost` / `--opentoolServerPort` / `--opentoolServerApiKeys`, which are injected by the daemon; supplying them returns 400.
 
 `POST /tools/{toolId}/start?timeout=20` exposes the same SSE behavior for restarting an existing tool directory.
 

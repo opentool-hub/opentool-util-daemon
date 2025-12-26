@@ -83,6 +83,7 @@ class ToolModel {
   int port;
   String apiKey;
   String status;
+  List<String>? extraCmds;
 
   ToolModel({
     required this.id,
@@ -92,6 +93,7 @@ class ToolModel {
     required this.port,
     required this.apiKey,
     required this.status,
+    this.extraCmds,
   });
 
   factory ToolModel.fromDao(ToolDao dao) {
@@ -103,6 +105,9 @@ class ToolModel {
       port: dao.port,
       apiKey: dao.apiKey,
       status: dao.status,
+      extraCmds: dao.extraCmds == null
+          ? null
+          : List<String>.from(dao.extraCmds!),
     );
   }
 
@@ -115,6 +120,7 @@ class ToolModel {
       port: port,
       apiKey: apiKey,
       status: status,
+      extraCmds: extraCmds == null ? null : List<String>.from(extraCmds!),
     );
   }
 }

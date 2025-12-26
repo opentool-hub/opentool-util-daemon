@@ -88,6 +88,7 @@ class ToolService {
   Future<ToolModel> runServer(
     ServerModel server,
     String hostType, {
+    List<String>? extraCmds,
     void Function(String script, String output)? onStdout,
     void Function(String script, String error)? onStderr,
     bool printStd = true,
@@ -130,6 +131,9 @@ class ToolService {
       config.run.entrypoint,
     );
     List<String> cmds = List<String>.from(config.run.cmds);
+    if (extraCmds != null && extraCmds.isNotEmpty) {
+      cmds.addAll(extraCmds);
+    }
 
     String tag = server.tag;
     cmds.add("--$CLI_ARGUMENT_TAG $tag");
@@ -171,6 +175,10 @@ class ToolService {
       port: port,
       apiKey: apiKey,
       status: ToolStatusType.RUNNING,
+      extraCmds:
+          extraCmds == null || extraCmds.isEmpty
+              ? null
+              : List<String>.from(extraCmds),
     );
     await _cacheToolStorage.add(toolDao);
     _registerClient(toolDao);
@@ -245,6 +253,9 @@ class ToolService {
       port: port,
       apiKey: apiKey,
       status: ToolStatusType.RUNNING,
+      extraCmds: tool.extraCmds == null
+          ? null
+          : List<String>.from(tool.extraCmds!),
     );
     await _cacheToolStorage.update(toolDao);
     _registerClient(toolDao);

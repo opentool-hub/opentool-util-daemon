@@ -1,13 +1,17 @@
-# env: info
-ARG DEFAULT_LOG=info
-ENV LOG_LEVEL=$DEFAULT_LOG
+# args
+ARG BUILD_TOOL_NAME=mock_tool
+
+# envs
+ENV RUN_TOOL_NAME=$BUILD_TOOL_NAME
+ENV NEW_VALUE_1=test1
+ENV NEW_VALUE_2=test2
 
 # build
 RUN dart pub get
-RUN dart compile exe bin/mock_tool.dart -o build/mock_tool
-RUN cp mock-tool.json build/mock-tool.json
+RUN dart compile exe bin/main.dart -o build/$BUILD_TOOL_NAME
+RUN cp bin/mock_tool.json build/mock_tool.json
 
 # run
 WORKDIR build
-ENTRYPOINT ["mock_tool"]
-CMD ["--log $LOG_LEVEL"]
+ENTRYPOINT ["$RUN_TOOL_NAME"]
+CMD ["--newValues $NEW_VALUE_1", "--newValues $NEW_VALUE_2"]

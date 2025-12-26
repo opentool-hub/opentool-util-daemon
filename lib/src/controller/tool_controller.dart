@@ -86,6 +86,59 @@ class ToolController {
     String hostType = queryParams['hostType'] ?? HostType.ANY;
     final int timeoutSeconds =
         int.tryParse(queryParams['timeout'] ?? '-1') ?? -1;
+    List<String> extraCmds = [];
+    final payload = await request.readAsString();
+    if (payload.trim().isNotEmpty) {
+      Map<String, dynamic> data;
+      try {
+        final decoded = jsonDecode(payload);
+        if (decoded is! Map<String, dynamic>) {
+          return Response.badRequest(
+            body: jsonEncode({'error': 'request body must be a JSON object'}),
+            headers: JSON_HEADERS,
+          );
+        }
+        data = decoded;
+      } catch (_) {
+        return Response.badRequest(
+          body: jsonEncode({'error': 'invalid request body'}),
+          headers: JSON_HEADERS,
+        );
+      }
+      final rawArgs = data['args'];
+      if (rawArgs != null) {
+        if (rawArgs is! List) {
+          return Response.badRequest(
+            body: jsonEncode({'error': 'args must be a string array'}),
+            headers: JSON_HEADERS,
+          );
+        }
+        for (final entry in rawArgs) {
+          if (entry is! String) {
+            return Response.badRequest(
+              body: jsonEncode({'error': 'args must be a string array'}),
+              headers: JSON_HEADERS,
+            );
+          }
+          final trimmed = entry.trim();
+          if (trimmed.isEmpty) {
+            return Response.badRequest(
+              body: jsonEncode({'error': 'args cannot contain empty values'}),
+              headers: JSON_HEADERS,
+            );
+          }
+          if (_containsReservedCliArgument(trimmed)) {
+            return Response.badRequest(
+              body: jsonEncode({
+                'error': 'args cannot include opentool runtime arguments',
+              }),
+              headers: JSON_HEADERS,
+            );
+          }
+          extraCmds.add(trimmed);
+        }
+      }
+    }
     ServerModel serverModel = await serverService.get(serverId);
     final streamController = StreamController<List<int>>();
     final completer = Completer<void>();
@@ -147,7 +200,11 @@ class ToolController {
 
     Future<ToolModel> runFuture;
     try {
-      runFuture = toolService.runServer(serverModel, hostType);
+      runFuture = toolService.runServer(
+        serverModel,
+        hostType,
+        extraCmds: extraCmds,
+      );
     } catch (error, stackTrace) {
       completeError(error, stackTrace);
       return Response.ok(
@@ -481,6 +538,19 @@ class ToolController {
       jsonEncode(ToolDto.fromModel(toolModel).toJson()),
       headers: JSON_HEADERS,
     );
+  }
+
+  bool _containsReservedCliArgument(String arg) {
+    const reserved = [
+      CLI_ARGUMENT_TAG,
+      CLI_ARGUMENT_HOST,
+      CLI_ARGUMENT_PORT,
+      CLI_ARGUMENT_APIKEYS,
+    ];
+    for (final name in reserved) {
+      if (arg.contains('--$name')) return true;
+    }
+    return false;
   }
 
   void _pushData(

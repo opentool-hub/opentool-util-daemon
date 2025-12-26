@@ -125,6 +125,7 @@ class FakeToolService implements ToolService {
   Future<ToolModel> runServer(
     ServerModel server,
     String hostType, {
+    List<String>? extraCmds,
     void Function(String script, String output)? onStdout,
     void Function(String script, String error)? onStderr,
     bool printStd = true,
