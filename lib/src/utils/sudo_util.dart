@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:logging/logging.dart';
-import 'package:opentool_daemon/opentool_daemon_utils.dart';
+import 'package:unique_id_dart/unique_id_dart.dart';
+
+import '../../opentool_daemon_utils.dart';
 
 typedef _CommandRunner =
     Future<ProcessResult> Function(String executable, List<String> arguments);

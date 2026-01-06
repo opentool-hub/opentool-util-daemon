@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:opentool_daemon/opentool_daemon_utils.dart';
+import 'package:unique_id_dart/unique_id_dart.dart';
 import '../constants.dart';
 import '../hub/dto.dart';
 import '../hub/hub_client.dart';

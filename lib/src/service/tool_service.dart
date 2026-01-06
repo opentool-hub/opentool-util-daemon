@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:opentool_daemon/opentool_daemon_utils.dart';
+import 'package:unique_id_dart/unique_id_dart.dart';
 import 'package:opentool_dart/opentool_client.dart';
 import 'package:path/path.dart' as p;
 import '../constants.dart';
