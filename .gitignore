@@ -3,6 +3,7 @@
 .opentool_data/
 .opentool/
 log/
+build/
 
 pubspec.lock
 *.iml
