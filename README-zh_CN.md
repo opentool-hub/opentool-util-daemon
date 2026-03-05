@@ -37,9 +37,6 @@ dart run bin/opentool_daemon.dart --config bin/config.json
 | 分组     | 方法     | 路径                           | 描述                            |
 |--------|--------|------------------------------|-------------------------------|
 | Manage | GET    | `/version`                   | 健康检查与守护进程版本                   |
-| Manage | POST   | `/opentool-hub/login`        | 登录 OpenTool Hub registry      |
-| Manage | GET    | `/opentool-hub/user`         | 查看已缓存的账户信息                    |
-| Manage | POST   | `/opentool-hub/logout`       | 清除本地凭据                        |
 | Manage | POST   | `/apiKey`                    | 创建守护进程 API Key（需 sudo 令牌）     |
 | Manage | GET    | `/apiKeys`                   | 列出守护进程 API Key（需 sudo 令牌）     |
 | Manage | DELETE | `/apiKey/{apiKey}`           | 删除守护进程 API Key（需 sudo 令牌）     |
@@ -90,25 +87,6 @@ data:{"json":"payload"}
   "version": "0.1.0"
 }
 ```
-
-### POST /opentool-hub/login
-```json
-{
-  "registry": "https://api.opentool-hub.com",
-  "username": "agent",
-  "password": "secret"
-}
-```
-返回：
-```json
-{
-  "registry": "https://api.opentool-hub.com",
-  "username": "agent"
-}
-```
-
-### GET /opentool-hub/user
-返回本地缓存的 registry + username。若需登出，调用 `POST /opentool-hub/logout`。
 
 ### POST /apiKey（需 `x-opentool-sudo-token`）
 将请求头设为 `~/.opentool/opentool-daemon.sudo` 中的临时令牌，可选提交 Key 名称：

@@ -27,6 +27,7 @@ class ManageController {
   }
 
   /// POST /opentool-hub/login
+  // TODO: Hide/disable this endpoint for external developers until opentool-hub backend is ready.
   Future<Response> login(Request request) async {
     final payload = await request.readAsString();
     final data = jsonDecode(payload);
@@ -48,6 +49,7 @@ class ManageController {
   }
 
   /// GET /opentool-hub/user
+  // TODO: Hide/disable this endpoint for external developers until opentool-hub backend is ready.
   Future<Response> getUserInfo(Request request) async {
     UserInfo userInfo = await manageService.getUserInfo();
     UserInfoDto userInfoDto = UserInfoDto.fromModel(userInfo);
@@ -60,6 +62,7 @@ class ManageController {
   }
 
   /// POST /opentool-hub/logout
+  // TODO: Hide/disable this endpoint for external developers until opentool-hub backend is ready.
   Future<Response> logout(Request request) async {
     UserInfo userInfo = await manageService.logout();
     UserInfoDto userInfoDto = UserInfoDto.fromModel(userInfo);

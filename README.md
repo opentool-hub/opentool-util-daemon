@@ -37,9 +37,6 @@ All paths below are relative to the base prefix `/opentool-daemon`.
 | Group  | Method | Path                         | Description                                                |
 |--------|--------|------------------------------|------------------------------------------------------------|
 | Manage | GET    | `/version`                   | Health check and daemon version                            |
-| Manage | POST   | `/opentool-hub/login`        | Authenticate with an OpenTool Hub registry                 |
-| Manage | GET    | `/opentool-hub/user`         | Return cached Hub user info                                |
-| Manage | POST   | `/opentool-hub/logout`       | Clear stored Hub credentials                               |
 | Manage | POST   | `/apiKey`                    | Create a daemon API key (requires sudo token)              |
 | Manage | GET    | `/apiKeys`                   | List daemon API keys (requires sudo token)                 |
 | Manage | DELETE | `/apiKey/{apiKey}`           | Delete a daemon API key (requires sudo token)              |
@@ -90,25 +87,6 @@ Use the client in `lib/src/client/client.dart` or any SSE-capable HTTP library t
   "version": "0.1.0"
 }
 ```
-
-### POST /opentool-hub/login
-```json
-{
-  "registry": "https://api.opentool-hub.com",
-  "username": "agent",
-  "password": "secret"
-}
-```
-Response:
-```json
-{
-  "registry": "https://api.opentool-hub.com",
-  "username": "agent"
-}
-```
-
-### GET /opentool-hub/user
-Returns the cached registry + username. Use `/opentool-hub/logout` (POST) to clear credentials.
 
 ### POST /apiKey (requires `x-opentool-sudo-token`)
 Set the header to the temporary token dropped at `~/.opentool/opentool-daemon.sudo` and optionally name the key:
