@@ -29,7 +29,7 @@ class ZipUtil {
     final zipData = encoder.encode(archive);
     final zipFile = File(zipFilePath);
     await zipFile.parent.create(recursive: true);
-    await zipFile.writeAsBytes(zipData!);
+    await zipFile.writeAsBytes(zipData);
   }
 
   static Future<String> unzipToTemp(String zipFilePath) async {
