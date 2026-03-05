@@ -176,10 +176,10 @@ class ToolService {
       port: port,
       apiKey: apiKey,
       status: ToolStatusType.RUNNING,
-      extraCmds:
-          extraCmds == null || extraCmds.isEmpty
-              ? null
-              : List<String>.from(extraCmds),
+      serverId: server.id,
+      extraCmds: extraCmds == null || extraCmds.isEmpty
+          ? null
+          : List<String>.from(extraCmds),
     );
     await _cacheToolStorage.add(toolDao);
     _registerClient(toolDao);

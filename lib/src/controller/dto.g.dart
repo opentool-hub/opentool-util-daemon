@@ -246,15 +246,27 @@ ToolDto _$ToolDtoFromJson(Map<String, dynamic> json) => ToolDto(
   host: json['host'] as String,
   port: (json['port'] as num).toInt(),
   status: json['status'] as String,
+  serverId: json['serverId'] as String?,
 );
 
-Map<String, dynamic> _$ToolDtoToJson(ToolDto instance) => <String, dynamic>{
-  'id': instance.id,
-  'alias': instance.alias,
-  'host': instance.host,
-  'port': instance.port,
-  'status': instance.status,
-};
+Map<String, dynamic> _$ToolDtoToJson(ToolDto instance) {
+  final val = <String, dynamic>{
+    'id': instance.id,
+    'alias': instance.alias,
+    'host': instance.host,
+    'port': instance.port,
+    'status': instance.status,
+  };
+
+  void writeNotNull(String key, dynamic value) {
+    if (value != null) {
+      val[key] = value;
+    }
+  }
+
+  writeNotNull('serverId', instance.serverId);
+  return val;
+}
 
 ToolWithApiKeyDto _$ToolWithApiKeyDtoFromJson(Map<String, dynamic> json) =>
     ToolWithApiKeyDto(
@@ -264,17 +276,28 @@ ToolWithApiKeyDto _$ToolWithApiKeyDtoFromJson(Map<String, dynamic> json) =>
       port: (json['port'] as num).toInt(),
       apiKey: json['apiKey'] as String,
       status: json['status'] as String,
+      serverId: json['serverId'] as String?,
     );
 
-Map<String, dynamic> _$ToolWithApiKeyDtoToJson(ToolWithApiKeyDto instance) =>
-    <String, dynamic>{
-      'id': instance.id,
-      'alias': instance.alias,
-      'host': instance.host,
-      'port': instance.port,
-      'apiKey': instance.apiKey,
-      'status': instance.status,
-    };
+Map<String, dynamic> _$ToolWithApiKeyDtoToJson(ToolWithApiKeyDto instance) {
+  final val = <String, dynamic>{
+    'id': instance.id,
+    'alias': instance.alias,
+    'host': instance.host,
+    'port': instance.port,
+    'apiKey': instance.apiKey,
+    'status': instance.status,
+  };
+
+  void writeNotNull(String key, dynamic value) {
+    if (value != null) {
+      val[key] = value;
+    }
+  }
+
+  writeNotNull('serverId', instance.serverId);
+  return val;
+}
 
 StartInfoDto _$StartInfoDtoFromJson(Map<String, dynamic> json) =>
     StartInfoDto(hostType: json['hostType'] as String?);

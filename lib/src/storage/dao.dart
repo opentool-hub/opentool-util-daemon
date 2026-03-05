@@ -73,6 +73,9 @@ class ToolDao extends HiveObject {
   @HiveField(7)
   List<String>? extraCmds;
 
+  @HiveField(8)
+  String? serverId;
+
   ToolDao({
     required this.id,
     required this.alias,
@@ -81,6 +84,7 @@ class ToolDao extends HiveObject {
     required this.port,
     required this.apiKey,
     required this.status,
+    this.serverId,
     this.extraCmds,
   });
 }

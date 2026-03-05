@@ -84,6 +84,7 @@ class ToolModel {
   String apiKey;
   String status;
   List<String>? extraCmds;
+  String? serverId;
 
   ToolModel({
     required this.id,
@@ -93,6 +94,7 @@ class ToolModel {
     required this.port,
     required this.apiKey,
     required this.status,
+    this.serverId,
     this.extraCmds,
   });
 
@@ -105,6 +107,7 @@ class ToolModel {
       port: dao.port,
       apiKey: dao.apiKey,
       status: dao.status,
+      serverId: dao.serverId,
       extraCmds: dao.extraCmds == null
           ? null
           : List<String>.from(dao.extraCmds!),
@@ -120,6 +123,7 @@ class ToolModel {
       port: port,
       apiKey: apiKey,
       status: status,
+      serverId: serverId,
       extraCmds: extraCmds == null ? null : List<String>.from(extraCmds!),
     );
   }

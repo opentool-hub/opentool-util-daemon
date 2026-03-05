@@ -289,6 +289,7 @@ class ToolDto {
   String host;
   int port;
   String status;
+  String? serverId;
 
   ToolDto({
     required this.id,
@@ -296,6 +297,7 @@ class ToolDto {
     required this.host,
     required this.port,
     required this.status,
+    this.serverId,
   });
 
   factory ToolDto.fromJson(Map<String, dynamic> json) =>
@@ -309,6 +311,7 @@ class ToolDto {
     host: tool.host,
     port: tool.port,
     status: tool.status,
+    serverId: tool.serverId,
   );
 }
 
@@ -320,6 +323,7 @@ class ToolWithApiKeyDto {
   int port;
   String apiKey;
   String status;
+  String? serverId;
 
   ToolWithApiKeyDto({
     required this.id,
@@ -328,6 +332,7 @@ class ToolWithApiKeyDto {
     required this.port,
     required this.apiKey,
     required this.status,
+    this.serverId,
   });
 
   factory ToolWithApiKeyDto.fromJson(Map<String, dynamic> json) =>
@@ -342,6 +347,7 @@ class ToolWithApiKeyDto {
     port: tool.port,
     apiKey: tool.apiKey,
     status: tool.status,
+    serverId: tool.serverId,
   );
 }
 
