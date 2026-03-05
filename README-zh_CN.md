@@ -211,6 +211,7 @@ SSE 事件示例：
 
 ### GET /tools/list?all=1
 返回全部条目；省略 `all` 或设为 `0` 时仅返回运行中的工具。
+条目中可能包含 `serverId`（可为空），用于标识该 Tool 创建时来源的 Server。
 
 ### GET /tools/listWithApiKeys?all=0（需 `x-opentool-api-key`）
 在请求头中携带任意守护进程 API Key，可得到附带 Tool API Key 的列表：
@@ -222,7 +223,8 @@ SSE 事件示例：
     "host": "127.0.0.1",
     "port": 9001,
     "apiKey": "tool_pk_abc",
-    "status": "RUNNING"
+    "status": "RUNNING",
+    "serverId": "srv-1"
   }
 ]
 ```
