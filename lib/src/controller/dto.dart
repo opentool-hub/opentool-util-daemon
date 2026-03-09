@@ -352,6 +352,34 @@ class ToolWithApiKeyDto {
 }
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
+class ToolLifecycleEventDto {
+  String type;
+  String reason;
+  ToolDto tool;
+  DateTime occurredAt;
+
+  ToolLifecycleEventDto({
+    required this.type,
+    required this.reason,
+    required this.tool,
+    required this.occurredAt,
+  });
+
+  factory ToolLifecycleEventDto.fromJson(Map<String, dynamic> json) =>
+      _$ToolLifecycleEventDtoFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ToolLifecycleEventDtoToJson(this);
+
+  factory ToolLifecycleEventDto.fromModel(ToolLifecycleEventModel model) =>
+      ToolLifecycleEventDto(
+        type: model.type,
+        reason: model.reason,
+        tool: ToolDto.fromModel(model.tool),
+        occurredAt: model.occurredAt,
+      );
+}
+
+@JsonSerializable(explicitToJson: true, includeIfNull: false)
 class StartInfoDto {
   String? hostType;
 

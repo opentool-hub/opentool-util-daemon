@@ -34,6 +34,7 @@ void serverRoutes(ServerController serverController) {
 void toolRoutes(ToolController toolController) {
   toolRouter.get('/list', toolController.listTools);
   toolRouter.get('/listWithApiKeys', toolController.listToolsWithApiKeys);
+  toolRouter.get('/events', toolController.subscribeToolEvents);
   toolRouter.post('/create', toolController.runServer);
   toolRouter.post('/<toolId>/start', toolController.startTool);
   toolRouter.post('/<toolId>/stop', toolController.stopTool);

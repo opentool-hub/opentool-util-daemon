@@ -299,6 +299,24 @@ Map<String, dynamic> _$ToolWithApiKeyDtoToJson(ToolWithApiKeyDto instance) {
   return val;
 }
 
+ToolLifecycleEventDto _$ToolLifecycleEventDtoFromJson(
+  Map<String, dynamic> json,
+) => ToolLifecycleEventDto(
+  type: json['type'] as String,
+  reason: json['reason'] as String,
+  tool: ToolDto.fromJson(json['tool'] as Map<String, dynamic>),
+  occurredAt: DateTime.parse(json['occurredAt'] as String),
+);
+
+Map<String, dynamic> _$ToolLifecycleEventDtoToJson(
+  ToolLifecycleEventDto instance,
+) => <String, dynamic>{
+  'type': instance.type,
+  'reason': instance.reason,
+  'tool': instance.tool.toJson(),
+  'occurredAt': instance.occurredAt.toIso8601String(),
+};
+
 StartInfoDto _$StartInfoDtoFromJson(Map<String, dynamic> json) =>
     StartInfoDto(hostType: json['hostType'] as String?);
 

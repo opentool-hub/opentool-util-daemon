@@ -42,15 +42,14 @@ dart run bin/opentool_daemon.dart --config bin/config.json
 | Manage | DELETE | `/apiKey/{apiKey}`           | 删除守护进程 API Key（需 sudo 令牌）     |
 | Server | GET    | `/servers/list`              | 列出缓存的 OpenTool Server         |
 | Server | POST   | `/servers/build`             | 根据 Opentoolfile 构建（SSE）       |
-| Server | POST   | `/servers/pull`              | 从 Hub 拉取 `.ots`（SSE）          |
 | Server | DELETE | `/servers/{serverId}`        | 删除指定 Server                   |
 | Server | POST   | `/servers/{serverId}/tag`    | 为 Server 新增或复用 tag            |
-| Server | POST   | `/servers/{serverId}/push`   | 将本地 Server 推送到 Hub（SSE）       |
 | Server | GET    | `/servers/{serverId}/export` | 导出 `.ots` 到目标目录               |
 | Server | POST   | `/servers/import`            | 导入外部 `.ots` 文件                |
 | Server | POST   | `/servers/{serverId}/alias`  | 修改 Server 别名                  |
 | Tool   | GET    | `/tools/list`                | 列出运行中的工具（或全部）                 |
 | Tool   | GET    | `/tools/listWithApiKeys`     | 列出工具及其 API Key（需守护进程 API Key） |
+| Tool   | GET    | `/tools/events`              | 订阅 Tool 生命周期事件（SSE）              |
 | Tool   | POST   | `/tools/create`              | 由 Server 启动 Tool（SSE）         |
 | Tool   | POST   | `/tools/{toolId}/start`      | 重新启动已存在 Tool（SSE）             |
 | Tool   | POST   | `/tools/{toolId}/stop`       | 停止 Tool 进程                    |
@@ -62,7 +61,7 @@ dart run bin/opentool_daemon.dart --config bin/config.json
 
 ### 关于流式接口
 
-`/servers/build`、`/servers/pull`、`/servers/{id}/push`、`/tools/create`、`/tools/{id}/start`、`/tools/{id}/streamCall` 都返回 `text/event-stream`，事件格式如下：
+`/servers/build`、`/tools/create`、`/tools/{id}/start`、`/tools/{id}/streamCall` 都返回 `text/event-stream`，事件格式如下：
 
 ```
 event:START|DATA|DONE|ERROR
@@ -70,6 +69,8 @@ data:{"json":"payload"}
 ```
 
 可直接复用 `lib/src/client/client.dart` 实现的 Dart 客户端，或使用任意支持 SSE 的库处理这些事件。
+
+与 OpenTool Hub 同步相关的内部守护进程接口不在这份面向开发者的公开文档中展开说明。
 
 ## 安全标头与令牌
 
@@ -151,20 +152,8 @@ SSE `event:DATA` 中包含正在执行的脚本与输出：
 ```
 `event:DONE` 表示 `.ots` 已写入 `~/.opentool/servers` 并关闭连接。
 
-### POST /servers/pull?name=demo&tag=latest
-把指定 Server 从 Hub 下载到临时 `.ots`，并通过 SSE 推送进度：
-- `START`：`{"sizeByByte":123456,"digest":"sha256:...","pullInfoDto":{"name":"demo","tag":"latest"}}`
-- `DATA`：`{"percent":42,"pullInfoDto":{...}}`
-- `DONE`：回显 `pullInfoDto`，随后守护进程会自动导入该 `.ots`。
-
 ### POST /servers/{serverId}/tag?tag=stable
 返回新增或复用的 Server DTO；若同一内部构建已有该 tag，则直接返回现有记录。
-
-### POST /servers/{serverId}/push
-SSE 事件示例：
-- `START`：`{"serverId":"srv-1","sizeByByte":123456,"digest":"sha256..."}`
-- `DATA`：`{"serverId":"srv-1","percent":42}`
-- `DONE`：`{"id":"srv-1"}`
 
 ### GET /servers/{serverId}/export
 请求体需提供目标目录：
@@ -207,8 +196,33 @@ SSE 事件示例：
 ]
 ```
 
+### GET /tools/events?snapshot=1（需 `x-opentool-api-key`）
+订阅守护进程管理的 Tool 生命周期事件，适合维护“当前可用 Tool 集合”的调度端或客户端。
+
+事件语义：
+- `tool.snapshot`：订阅建立后发送当前缓存中的 Tool 快照，默认开启，可通过 `snapshot=0` 关闭。
+- `tool.draining`：在 Tool 真正收到 stop/delete 指令之前发出，收到后应立即把该 Tool 从可用集合中移除。
+- `tool.ready`：仅当守护进程成功调用 Tool 的 `/version`，确认 Tool 已可用后才发出。
+- `tool.unavailable`：守护进程检测到原本运行中的 Tool 已不可达。
+- `tool.removed`：守护进程删除 Tool 元数据后发出。
+
+示例：
+```text
+event:ready
+data:{"message":"subscribed"}
+
+event:tool.snapshot
+data:{"type":"tool.snapshot","reason":"snapshot","tool":{"id":"tool-1","alias":"alpha","host":"127.0.0.1","port":9001,"status":"running"},"occurredAt":"2026-03-07T00:00:00.000Z"}
+
+event:tool.draining
+data:{"type":"tool.draining","reason":"stop_requested","tool":{"id":"tool-1","alias":"alpha","host":"127.0.0.1","port":9001,"status":"running"},"occurredAt":"2026-03-07T00:01:00.000Z"}
+
+event:tool.ready
+data:{"type":"tool.ready","reason":"started","tool":{"id":"tool-2","alias":"beta","host":"127.0.0.1","port":9002,"status":"running"},"occurredAt":"2026-03-07T00:01:05.000Z"}
+```
+
 ### POST /tools/create?serverId=srv-1&hostType=local&timeout=20
-基于指定 Server 启动 Tool。SSE `event:DATA` 为标准输出，`event:ERROR` 为标准错误。守护进程会在 `~/.opentool/tools/{toolId}` 中创建工作目录，并分配端口与 API Key。可用查询参数：
+基于指定 Server 启动 Tool。SSE `event:DATA` 为标准输出，`event:ERROR` 为标准错误。守护进程会在 `~/.opentool/tools/{toolId}` 中创建工作目录，并分配端口与 API Key。只有当 Tool 通过守护进程的就绪检查后，请求才算成功，同时 `/tools/events` 会发出 `tool.ready`。可用查询参数：
 - `hostType`：`local`、`remote` 或留空（默认 `any`），用于传递给 Tool 运行时。
 - `timeout`：在 Tool 启动较慢时，SSE 连接在指定秒数后会主动关闭，但进程会继续在后台运行。
 
@@ -220,7 +234,7 @@ SSE 事件示例：
 ```
 `args` 为字符串数组，会按顺序追加到 Opentoolfile 的 `CMD` 后，并保存到该 Tool；`POST /tools/{toolId}/start` 会复用这些参数。不能包含 `--opentoolServerTag` / `--opentoolServerHost` / `--opentoolServerPort` / `--opentoolServerApiKeys`，这些参数由守护进程自动注入，传入将返回 400。
 
-`POST /tools/{toolId}/start?timeout=20` 对应对已有 Tool 目录的重启，并共享上述 SSE 行为。
+`POST /tools/{toolId}/start?timeout=20` 对应对已有 Tool 目录的重启，并共享上述 SSE 行为。只有在重启后的 Tool 确认可达时，守护进程才会发出 `tool.ready`。
 
 ### POST /tools/{toolId}/call
 请求遵循 OpenTool function-call 规范：
@@ -237,12 +251,12 @@ SSE 事件示例：
 与 `/call` 相同但通过 SSE 返回流式结果，适合长耗时任务。
 
 ### GET /tools/{toolId}/load
-返回打包在 `Opentoolfile.json` 内的 `OpenTool` 描述。使用 `POST /tools/{toolId}/alias?alias=new-name` 修改别名，`POST /tools/{toolId}/stop` 停止进程，`DELETE /tools/{toolId}` 停止并移除缓存。
+返回打包在 `Opentoolfile.json` 内的 `OpenTool` 描述。使用 `POST /tools/{toolId}/alias?alias=new-name` 修改别名，`POST /tools/{toolId}/stop` 停止进程，`DELETE /tools/{toolId}` 停止并移除缓存。停止前守护进程会先发出 `tool.draining`；删除时会先发 `tool.draining`，删除完成后再发 `tool.removed`。
 
 ---
 
 ## 客户端 SDK
 
-`lib/src/client/client.dart` 已封装所有 Manage/Server/Tool 接口，包含 DTO、SSE 解析及错误处理，可直接在其他 Dart 项目中引用，避免重复实现 HTTP/SSE 逻辑。
+`lib/src/client/client.dart` 已封装所有 Manage/Server/Tool 接口，包含 DTO、SSE 解析及错误处理，也支持订阅 `/tools/events`，可直接在其他 Dart 项目中引用，避免重复实现 HTTP/SSE 逻辑。
 
 需要更多细节？查看 `lib/src/controller` 中的 DTO 定义或 `lib/src/service` 了解每个接口的具体副作用。

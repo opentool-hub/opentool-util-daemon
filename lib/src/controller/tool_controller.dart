@@ -13,6 +13,7 @@ import '../constants.dart';
 import 'dto.dart';
 
 class ToolController {
+  static const Duration _sseHeartbeatInterval = Duration(seconds: 20);
   ToolService toolService;
   ServerService serverService;
   ManageService manageService;
@@ -43,15 +44,8 @@ class ToolController {
 
   /// GET /tools/listWithApiKeys
   Future<Response> listToolsWithApiKeys(Request request) async {
-    final token = request.headers[TOOL_API_KEY_HEADER];
-    try {
-      await manageService.ensureDaemonApiKey(token);
-    } on ApiKeyNotFoundException catch (error) {
-      return Response.forbidden(
-        jsonEncode({'error': error.toString()}),
-        headers: JSON_HEADERS,
-      );
-    }
+    final authError = await _validateDaemonApiKey(request);
+    if (authError != null) return authError;
     final queryParams = request.url.queryParameters;
     logger.log(
       LogModule.http,
@@ -70,6 +64,100 @@ class ToolController {
       detail: jsonEncode(toolsDto),
     );
     return Response.ok(jsonEncode(toolsDto), headers: JSON_HEADERS);
+  }
+
+  /// GET /tools/events?snapshot=1
+  Future<Response> subscribeToolEvents(Request request) async {
+    final authError = await _validateDaemonApiKey(request);
+    if (authError != null) return authError;
+
+    final bool includeSnapshot = request.url.queryParameters['snapshot'] != '0';
+    StreamSubscription<ToolLifecycleEventModel>? subscription;
+    Timer? heartbeat;
+    late StreamController<List<int>> streamController;
+
+    Future<void> dispose() async {
+      heartbeat?.cancel();
+      heartbeat = null;
+      await subscription?.cancel();
+      subscription = null;
+    }
+
+    streamController = StreamController<List<int>>(
+      onCancel: () async {
+        await dispose();
+      },
+    );
+
+    _pushData(
+      streamController,
+      EventType.DATA,
+      jsonEncode(EventMessageDto(message: 'subscribed').toJson()),
+      sseEvent: 'ready',
+      logMessage: 'toolEvents.ready',
+    );
+
+    if (includeSnapshot) {
+      final tools = await toolService.list(all: true);
+      for (final tool in tools) {
+        _pushData(
+          streamController,
+          EventType.DATA,
+          jsonEncode(
+            ToolLifecycleEventDto.fromModel(
+              ToolLifecycleEventModel(
+                type: ToolLifecycleEventType.SNAPSHOT,
+                reason: ToolLifecycleEventReason.SNAPSHOT,
+                tool: tool,
+                occurredAt: DateTime.now().toUtc(),
+              ),
+            ).toJson(),
+          ),
+          sseEvent: ToolLifecycleEventType.SNAPSHOT,
+          logMessage: 'toolEvents.snapshot',
+        );
+      }
+    }
+
+    heartbeat = Timer.periodic(_sseHeartbeatInterval, (_) {
+      if (streamController.isClosed) return;
+      streamController.sink.add(utf8.encode(': ping\n\n'));
+    });
+
+    subscription = toolService.events.listen(
+      (event) {
+        if (streamController.isClosed) return;
+        _pushData(
+          streamController,
+          EventType.DATA,
+          jsonEncode(ToolLifecycleEventDto.fromModel(event).toJson()),
+          sseEvent: event.type,
+          logMessage: 'toolEvents.push',
+        );
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (streamController.isClosed) return;
+        _pushData(
+          streamController,
+          EventType.ERROR,
+          jsonEncode({'error': error.toString()}),
+          sseEvent: 'error',
+          logMessage: 'toolEvents.error',
+        );
+        logger.log(
+          LogModule.tool,
+          'toolEvents.error',
+          detail: 'error: $error\n$stackTrace',
+          level: Level.WARNING,
+        );
+      },
+    );
+
+    return Response.ok(
+      streamController.stream,
+      headers: STREAM_HEADERS,
+      context: {'shelf.io.buffer_output': false},
+    );
   }
 
   /// POST /tools/create?serverId=<serverId>&timeout=<seconds>
@@ -557,6 +645,7 @@ class ToolController {
     StreamController<List<int>> streamController,
     String eventType,
     String dataString, {
+    String? sseEvent,
     String? logMessage,
   }) {
     logger.log(
@@ -564,7 +653,20 @@ class ToolController {
       logMessage ?? "tool.pushData",
       detail: "eventType: $eventType, data: $dataString",
     );
-    String data = "event:$eventType\ndata:$dataString\n\n";
+    String data = "event:${sseEvent ?? eventType}\ndata:$dataString\n\n";
     streamController.sink.add(utf8.encode(data));
+  }
+
+  Future<Response?> _validateDaemonApiKey(Request request) async {
+    final token = request.headers[TOOL_API_KEY_HEADER];
+    try {
+      await manageService.ensureDaemonApiKey(token);
+      return null;
+    } on ApiKeyNotFoundException catch (error) {
+      return Response.forbidden(
+        jsonEncode({'error': error.toString()}),
+        headers: JSON_HEADERS,
+      );
+    }
   }
 }

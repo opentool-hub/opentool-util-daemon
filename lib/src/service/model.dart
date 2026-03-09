@@ -5,6 +5,25 @@ class ToolStatusType {
   static const String NOT_RUNNING = 'notRunning';
 }
 
+class ToolLifecycleEventType {
+  static const String READY = 'tool.ready';
+  static const String DRAINING = 'tool.draining';
+  static const String UNAVAILABLE = 'tool.unavailable';
+  static const String REMOVED = 'tool.removed';
+  static const String SNAPSHOT = 'tool.snapshot';
+}
+
+class ToolLifecycleEventReason {
+  static const String CREATED = 'created';
+  static const String STARTED = 'started';
+  static const String ALIAS_UPDATED = 'alias_updated';
+  static const String STOP_REQUESTED = 'stop_requested';
+  static const String DELETE_REQUESTED = 'delete_requested';
+  static const String HEALTHCHECK_FAILED = 'healthcheck_failed';
+  static const String DELETED = 'deleted';
+  static const String SNAPSHOT = 'snapshot';
+}
+
 class VersionModel {
   String name;
   String version;
@@ -127,6 +146,20 @@ class ToolModel {
       extraCmds: extraCmds == null ? null : List<String>.from(extraCmds!),
     );
   }
+}
+
+class ToolLifecycleEventModel {
+  final String type;
+  final String reason;
+  final ToolModel tool;
+  final DateTime occurredAt;
+
+  ToolLifecycleEventModel({
+    required this.type,
+    required this.reason,
+    required this.tool,
+    required this.occurredAt,
+  });
 }
 
 class ApiKeyModel {

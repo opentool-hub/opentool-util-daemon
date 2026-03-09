@@ -125,6 +125,55 @@ void main() {
         expect(tool!.status, equals(ToolStatusType.NOT_RUNNING));
       },
     );
+
+    test('stop emits draining before marking the tool not running', () async {
+      service = ToolService(
+        hiveToolStorage,
+        clientFactory: (_) => _StoppingClient(),
+      );
+      final events = <ToolLifecycleEventModel>[];
+      final subscription = service.events.listen(events.add);
+
+      await service.stop('tool-1');
+
+      await Future<void>.delayed(Duration.zero);
+      await subscription.cancel();
+      expect(events, hasLength(1));
+      expect(events.single.type, equals(ToolLifecycleEventType.DRAINING));
+      expect(
+        events.single.reason,
+        equals(ToolLifecycleEventReason.STOP_REQUESTED),
+      );
+      final tool = await hiveToolStorage.get('tool-1');
+      expect(tool!.status, equals(ToolStatusType.NOT_RUNNING));
+    });
+
+    test('call emits unavailable when the tool becomes unreachable', () async {
+      service = ToolService(
+        hiveToolStorage,
+        clientFactory: (_) =>
+            _ThrowingCallClient(OpenToolServerNoAccessException()),
+      );
+      final events = <ToolLifecycleEventModel>[];
+      final subscription = service.events.listen(events.add);
+
+      await expectLater(
+        service.call(
+          'tool-1',
+          FunctionCall(id: 'call-1', name: 'count', arguments: const {}),
+        ),
+        throwsA(isA<OpenToolServerNoAccessException>()),
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      await subscription.cancel();
+      expect(events, hasLength(1));
+      expect(events.single.type, equals(ToolLifecycleEventType.UNAVAILABLE));
+      expect(
+        events.single.reason,
+        equals(ToolLifecycleEventReason.HEALTHCHECK_FAILED),
+      );
+    });
   });
 }
 
@@ -153,4 +202,11 @@ class _ThrowingCallClient extends OpenToolClient {
   Future<ToolReturn> call(FunctionCall functionCall) async {
     throw error;
   }
+}
+
+class _StoppingClient extends OpenToolClient {
+  _StoppingClient() : super(toolHost: '127.0.0.1', toolPort: 8080);
+
+  @override
+  Future<StatusInfo?> stop() async => null;
 }

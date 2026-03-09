@@ -29,21 +29,28 @@ class SseClient {
     String path, {
     Map<String, dynamic>? requestBody,
     Map<String, dynamic>? queryParameters,
+    String method = 'POST',
+    Map<String, String>? headers,
   }) async {
     Uri uri = Uri.parse(
       "$baseUrl$path",
     ).replace(queryParameters: queryParameters);
 
     io.HttpClient httpClient = io.HttpClient();
-    io.HttpClientRequest request = await httpClient.postUrl(uri);
+    io.HttpClientRequest request = await httpClient.openUrl(method, uri);
 
+    this.headers?.forEach((key, value) {
+      request.headers.set(key, value);
+    });
     headers?.forEach((key, value) {
       request.headers.set(key, value);
     });
     if (apiKey != null)
       request.headers.add(io.HttpHeaders.authorizationHeader, 'Bearer $apiKey');
 
-    request.add(utf8.encode(jsonEncode(requestBody ?? {})));
+    if (requestBody != null) {
+      request.add(utf8.encode(jsonEncode(requestBody)));
+    }
 
     io.HttpClientResponse response = await request.close();
 
@@ -60,7 +67,7 @@ class SseClient {
     String data,
     void Function(String event, Map<String, dynamic> data) onEvent,
   ) async {
-    final eventRegex = RegExp(r'event:(\w+)\ndata:(.*?)\n\n');
+    final eventRegex = RegExp(r'event:([^\n]+)\ndata:(.*?)\n\n');
     final matches = eventRegex.allMatches(data);
 
     for (var match in matches) {

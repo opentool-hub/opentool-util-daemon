@@ -1,4 +1,5 @@
 import 'package:opentool_daemon/src/service/config.dart';
+import 'dart:async';
 import 'package:opentool_daemon/src/service/manage_service.dart';
 import 'package:opentool_daemon/src/service/model.dart';
 import 'package:opentool_daemon/src/service/server_service.dart';
@@ -88,6 +89,8 @@ class FakeToolService implements ToolService {
   final Map<String, ToolModel> _tools;
   final Map<String, ToolReturn> toolReturns;
   final Map<String, OpenTool?> toolDefinitions;
+  final StreamController<ToolLifecycleEventModel> _events =
+      StreamController<ToolLifecycleEventModel>.broadcast();
   String? lastStoppedId;
   String? lastDeletedId;
 
@@ -98,6 +101,13 @@ class FakeToolService implements ToolService {
   }) : _tools = {
          for (final tool in initialTools ?? <ToolModel>[]) tool.id: tool,
        };
+
+  @override
+  Stream<ToolLifecycleEventModel> get events => _events.stream;
+
+  void emitEvent(ToolLifecycleEventModel event) {
+    _events.add(event);
+  }
 
   @override
   Future<void> delete(String toolId) async {

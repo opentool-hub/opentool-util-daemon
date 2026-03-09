@@ -114,6 +114,49 @@ void main() {
       expect(unauthorizedResponse.statusCode, equals(403));
     });
 
+    test('subscribeToolEvents requires daemon api key', () async {
+      final request = Request(
+        'GET',
+        Uri.parse('http://localhost/opentool-daemon/tools/events'),
+      );
+
+      final response = await controller.subscribeToolEvents(request);
+
+      expect(response.statusCode, equals(403));
+    });
+
+    test('subscribeToolEvents streams snapshot and lifecycle events', () async {
+      final request = Request(
+        'GET',
+        Uri.parse('http://localhost/opentool-daemon/tools/events?snapshot=1'),
+        headers: {TOOL_API_KEY_HEADER: adminApiKey},
+      );
+
+      final response = await controller.subscribeToolEvents(request);
+      final chunks = <String>[];
+      final sub = response.read().transform(utf8.decoder).listen(chunks.add);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      toolService.emitEvent(
+        ToolLifecycleEventModel(
+          type: ToolLifecycleEventType.DRAINING,
+          reason: ToolLifecycleEventReason.STOP_REQUESTED,
+          tool: await toolService.get('tool-1'),
+          occurredAt: DateTime.utc(2026, 3, 7, 0, 0, 1),
+        ),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await sub.cancel();
+      final body = chunks.join();
+
+      expect(body, contains('event:ready'));
+      expect(body, contains('event:tool.snapshot'));
+      expect(body, contains('"reason":"snapshot"'));
+      expect(body, contains('event:tool.draining'));
+      expect(body, contains('"reason":"stop_requested"'));
+    });
+
     test('stopTool delegates to the service and returns the id DTO', () async {
       final request = Request(
         'POST',

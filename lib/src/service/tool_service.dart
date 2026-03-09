@@ -16,9 +16,15 @@ import 'model.dart';
 
 class ToolService {
   late CacheToolStorage _cacheToolStorage;
-  Map<String, OpenToolClient> _clients = {};
+  final Map<String, OpenToolClient> _clients = {};
+  final StreamController<ToolLifecycleEventModel> _eventController =
+      StreamController<ToolLifecycleEventModel>.broadcast();
   late final OpenToolClient Function(ToolDao toolDao) _clientFactory;
   late final Future<int> Function(String host, int startPort) _portAllocator;
+  static const Duration _readyCheckInterval = Duration(milliseconds: 500);
+  static const Duration _readyCheckTimeout = Duration(seconds: 30);
+
+  Stream<ToolLifecycleEventModel> get events => _eventController.stream;
 
   ToolService(
     HiveToolStorage hive, {
@@ -183,6 +189,12 @@ class ToolService {
     );
     await _cacheToolStorage.add(toolDao);
     _registerClient(toolDao);
+    await _waitUntilReady(toolDao);
+    _emitLifecycleEvent(
+      ToolLifecycleEventType.READY,
+      ToolLifecycleEventReason.CREATED,
+      ToolModel.fromDao(toolDao),
+    );
     logger.log(
       LogModule.tool,
       "runServer.result",
@@ -260,6 +272,12 @@ class ToolService {
     );
     await _cacheToolStorage.update(toolDao);
     _registerClient(toolDao);
+    await _waitUntilReady(toolDao);
+    _emitLifecycleEvent(
+      ToolLifecycleEventType.READY,
+      ToolLifecycleEventReason.STARTED,
+      ToolModel.fromDao(toolDao),
+    );
     logger.log(
       LogModule.tool,
       "startTool.result",
@@ -281,20 +299,32 @@ class ToolService {
 
   Future<void> stop(String toolId) async {
     logger.log(LogModule.tool, "stop.input", detail: "toolId: $toolId");
+    final toolDao = await _cacheToolStorage.get(toolId);
+    if (toolDao == null) throw ToolNotFoundException(toolId);
+    _emitLifecycleEvent(
+      ToolLifecycleEventType.DRAINING,
+      ToolLifecycleEventReason.STOP_REQUESTED,
+      ToolModel.fromDao(toolDao),
+    );
     await _checkThenRun(toolId, (client) async {
       await client.stop();
     });
-    final toolDao = await _cacheToolStorage.get(toolId);
-    if (toolDao != null) {
-      toolDao.status = ToolStatusType.NOT_RUNNING;
-      await _cacheToolStorage.update(toolDao);
-    }
+    toolDao.status = ToolStatusType.NOT_RUNNING;
+    await _cacheToolStorage.update(toolDao);
     _clients.remove(toolId);
     logger.log(LogModule.tool, "stop.result", detail: "toolId: $toolId");
   }
 
   Future<void> delete(String toolId) async {
     logger.log(LogModule.tool, "delete.input", detail: "toolId: $toolId");
+    final existingToolDao = await _cacheToolStorage.get(toolId);
+    if (existingToolDao != null) {
+      _emitLifecycleEvent(
+        ToolLifecycleEventType.DRAINING,
+        ToolLifecycleEventReason.DELETE_REQUESTED,
+        ToolModel.fromDao(existingToolDao),
+      );
+    }
     OpenToolClient? client = _clients.remove(toolId);
     if (client != null) {
       try {
@@ -309,9 +339,14 @@ class ToolService {
       }
     }
 
-    ToolDao? toolDao = await _cacheToolStorage.get(toolId);
+    ToolDao? toolDao = existingToolDao;
     if (toolDao != null) {
       await _cacheToolStorage.remove(toolId);
+      _emitLifecycleEvent(
+        ToolLifecycleEventType.REMOVED,
+        ToolLifecycleEventReason.DELETED,
+        ToolModel.fromDao(toolDao),
+      );
     }
 
     final String toolFolder = p.join(OPENTOOL_PATH, TOOL_FOLDER, toolId);
@@ -403,6 +438,12 @@ class ToolService {
       if (shouldMarkNotRunning) {
         toolDao.status = ToolStatusType.NOT_RUNNING;
         await _cacheToolStorage.update(toolDao);
+        _clients.remove(toolId);
+        _emitLifecycleEvent(
+          ToolLifecycleEventType.UNAVAILABLE,
+          ToolLifecycleEventReason.HEALTHCHECK_FAILED,
+          ToolModel.fromDao(toolDao),
+        );
       }
       logger.log(
         LogModule.tool,
@@ -417,6 +458,32 @@ class ToolService {
     final client = _clientFactory(toolDao);
     _clients[toolDao.id] = client;
     return client;
+  }
+
+  Future<void> _waitUntilReady(ToolDao toolDao) async {
+    final stopwatch = Stopwatch()..start();
+    while (true) {
+      final client = _clients[toolDao.id] ?? _registerClient(toolDao);
+      try {
+        await client.version();
+        return;
+      } catch (_) {
+        if (stopwatch.elapsed >= _readyCheckTimeout) rethrow;
+        await Future<void>.delayed(_readyCheckInterval);
+      }
+    }
+  }
+
+  void _emitLifecycleEvent(String type, String reason, ToolModel tool) {
+    if (_eventController.isClosed) return;
+    _eventController.add(
+      ToolLifecycleEventModel(
+        type: type,
+        reason: reason,
+        tool: tool,
+        occurredAt: DateTime.now().toUtc(),
+      ),
+    );
   }
 
   OpenToolClient _buildClient(ToolDao toolDao) {

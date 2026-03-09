@@ -2,8 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:opentool_daemon/opentool_daemon_utils.dart';
-import 'package:opentool_dart/opentool_client.dart';
 import 'package:opentool_daemon/opentool_daemon_server.dart';
+import 'package:opentool_dart/opentool_client.dart';
+import '../service/model.dart';
 
 class DaemonClient {
   String protocol = 'http';
@@ -332,6 +333,36 @@ class DaemonClient {
         .toList();
   }
 
+  /// GET /tools/events?snapshot=1
+  Future<Stream<ToolLifecycleEventDto>> subscribeToolEvents({
+    required String daemonApiKey,
+    bool snapshot = true,
+  }) async {
+    final sseStream = await toolSse.request(
+      '/events',
+      queryParameters: {'snapshot': snapshot ? '1' : '0'},
+      method: 'GET',
+      headers: {TOOL_API_KEY_HEADER: daemonApiKey},
+    );
+
+    return sseStream.transform(
+      StreamTransformer<String, ToolLifecycleEventDto>.fromHandlers(
+        handleData: (chunk, sink) {
+          SseClient.parse(chunk, (event, data) {
+            if (event == 'ready') return;
+            if (event == ToolLifecycleEventType.SNAPSHOT ||
+                event == ToolLifecycleEventType.READY ||
+                event == ToolLifecycleEventType.DRAINING ||
+                event == ToolLifecycleEventType.UNAVAILABLE ||
+                event == ToolLifecycleEventType.REMOVED) {
+              sink.add(ToolLifecycleEventDto.fromJson(data));
+            }
+          });
+        },
+      ),
+    );
+  }
+
   /// POST /tools/create
   Future<CommandResultDto> runServer(
     String serverId,
@@ -345,9 +376,7 @@ class DaemonClient {
       if (timeoutSeconds >= 0) 'timeout': '$timeoutSeconds',
     };
     final Map<String, dynamic>? requestBody =
-        extraCmds != null && extraCmds.isNotEmpty
-        ? {'args': extraCmds}
-        : null;
+        extraCmds != null && extraCmds.isNotEmpty ? {'args': extraCmds} : null;
     final completer = Completer<CommandResultDto>();
     StreamSubscription<String>? subscription;
     void completeWithError(Object error, [StackTrace? stack]) {

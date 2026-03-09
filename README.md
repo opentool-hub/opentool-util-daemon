@@ -42,15 +42,14 @@ All paths below are relative to the base prefix `/opentool-daemon`.
 | Manage | DELETE | `/apiKey/{apiKey}`           | Delete a daemon API key (requires sudo token)              |
 | Server | GET    | `/servers/list`              | List cached OpenTool servers                               |
 | Server | POST   | `/servers/build`             | Build a server from an Opentoolfile (SSE stream)           |
-| Server | POST   | `/servers/pull`              | Pull a server from the Hub into a temp `.ots` (SSE stream) |
 | Server | DELETE | `/servers/{serverId}`        | Delete a server record                                     |
 | Server | POST   | `/servers/{serverId}/tag`    | Add or reuse a tag for an existing server                  |
-| Server | POST   | `/servers/{serverId}/push`   | Push a local server artifact to the Hub (SSE stream)       |
 | Server | GET    | `/servers/{serverId}/export` | Copy an `.ots` to a destination folder                     |
 | Server | POST   | `/servers/import`            | Import an external `.ots` file                             |
 | Server | POST   | `/servers/{serverId}/alias`  | Rename a server alias                                      |
 | Tool   | GET    | `/tools/list`                | List running tools (or `all` tools)                        |
 | Tool   | GET    | `/tools/listWithApiKeys`     | List tools and their API keys (requires daemon API key)    |
+| Tool   | GET    | `/tools/events`              | Subscribe to tool lifecycle events over SSE                |
 | Tool   | POST   | `/tools/create`              | Run a tool from a server definition (SSE stream)           |
 | Tool   | POST   | `/tools/{toolId}/start`      | Restart a previously created tool (SSE stream)             |
 | Tool   | POST   | `/tools/{toolId}/stop`       | Stop a running tool                                        |
@@ -62,7 +61,7 @@ All paths below are relative to the base prefix `/opentool-daemon`.
 
 ### Notes on Streaming Endpoints
 
-`/servers/build`, `/servers/pull`, `/servers/{id}/push`, `/tools/create`, `/tools/{id}/start`, and `/tools/{id}/streamCall` return `text/event-stream`. Events follow this format:
+`/servers/build`, `/tools/create`, `/tools/{id}/start`, and `/tools/{id}/streamCall` return `text/event-stream`. Events follow this format:
 
 ```
 event:START|DATA|DONE|ERROR
@@ -70,6 +69,8 @@ data:{"json":"payload"}
 ```
 
 Use the client in `lib/src/client/client.dart` or any SSE-capable HTTP library to consume them.
+
+Internal daemon endpoints related to OpenTool Hub synchronization are intentionally omitted from this public developer document.
 
 ## Security Headers & Tokens
 
@@ -151,20 +152,8 @@ Streams build progress for each command listed in `Opentoolfile`. `event:DATA` p
 ```
 `event:DONE` closes the stream once the `.ots` artifact is stored under `~/.opentool/servers`.
 
-### POST /servers/pull?name=demo&tag=latest
-Downloads the named server from the Hub to a temporary `.ots`, emitting SSE events:
-- `START`: `{ "sizeByByte": 123456, "digest": "sha256:...", "pullInfoDto": {"name": "demo", "tag": "latest"} }`
-- `DATA`: `{ "percent": 42, "pullInfoDto": { ... } }` for progress updates.
-- `DONE`: echoes the `PullInfoDto` once the archive is fully downloaded. The daemon automatically imports the artifact into the local cache afterwards.
-
 ### POST /servers/{serverId}/tag?tag=stable
 Returns the tagged server DTO. If the tag already exists for the same internal build, the existing record is reused.
-
-### POST /servers/{serverId}/push
-SSE stream with:
-- `START`: `{ "serverId": "srv-1", "sizeByByte": 123456, "digest": "sha256..." }`
-- `DATA`: `{ "serverId": "srv-1", "percent": 42 }`
-- `DONE`: `{ "id": "srv-1" }`
 
 ### GET /servers/{serverId}/export
 Provide a JSON body `{ "path": "/tmp/output" }` describing the destination directory. The daemon copies the `.ots` into that folder using the pattern `<repo>-<name>-<tag>-<os>-<cpu>.ots`.
@@ -201,8 +190,33 @@ Send any daemon API key via the header described earlier to receive the same too
 ]
 ```
 
+### GET /tools/events?snapshot=1 (requires `x-opentool-api-key`)
+Subscribes to daemon-managed tool lifecycle events. This stream is intended for clients that maintain a live set of currently usable tools.
+
+Event semantics:
+- `tool.snapshot`: initial snapshot for each cached tool when `snapshot=1` (default).
+- `tool.draining`: emitted before a tool is asked to stop or before deletion starts. Remove the tool from your ready set immediately.
+- `tool.ready`: emitted only after the daemon can successfully call the tool's `/version` endpoint.
+- `tool.unavailable`: emitted when the daemon detects a previously running tool has become unreachable.
+- `tool.removed`: emitted after the daemon removes the tool metadata entry.
+
+Example:
+```text
+event:ready
+data:{"message":"subscribed"}
+
+event:tool.snapshot
+data:{"type":"tool.snapshot","reason":"snapshot","tool":{"id":"tool-1","alias":"alpha","host":"127.0.0.1","port":9001,"status":"running"},"occurredAt":"2026-03-07T00:00:00.000Z"}
+
+event:tool.draining
+data:{"type":"tool.draining","reason":"stop_requested","tool":{"id":"tool-1","alias":"alpha","host":"127.0.0.1","port":9001,"status":"running"},"occurredAt":"2026-03-07T00:01:00.000Z"}
+
+event:tool.ready
+data:{"type":"tool.ready","reason":"started","tool":{"id":"tool-2","alias":"beta","host":"127.0.0.1","port":9002,"status":"running"},"occurredAt":"2026-03-07T00:01:05.000Z"}
+```
+
 ### POST /tools/create?serverId=srv-1&hostType=local&timeout=20
-Starts a tool from the selected server. SSE events deliver command output (`event:DATA`) or errors (`event:ERROR`). The daemon allocates a new port, API key, and workspace under `~/.opentool/tools/{toolId}`. Optional query parameters:
+Starts a tool from the selected server. SSE events deliver command output (`event:DATA`) or errors (`event:ERROR`). The daemon allocates a new port, API key, and workspace under `~/.opentool/tools/{toolId}`. The request only completes successfully after the tool passes the daemon readiness check, and `/tools/events` emits `tool.ready`. Optional query parameters:
 - `hostType`: `local`, `remote`, or omitted for `any` (pass-through to the tool runtime).
 - `timeout`: number of seconds before the daemon closes the SSE connection even if the tool keeps starting; the process continues in the background.
 
@@ -214,7 +228,7 @@ Optional request body (persisted on the tool and reused on restart):
 ```
 `args` is a string array appended after the Opentoolfile `CMD` and stored with the tool; `/tools/{toolId}/start` will reuse them. It must not include `--opentoolServerTag` / `--opentoolServerHost` / `--opentoolServerPort` / `--opentoolServerApiKeys`, which are injected by the daemon; supplying them returns 400.
 
-`POST /tools/{toolId}/start?timeout=20` exposes the same SSE behavior for restarting an existing tool directory.
+`POST /tools/{toolId}/start?timeout=20` exposes the same SSE behavior for restarting an existing tool directory. The daemon emits `tool.ready` only after the restarted tool becomes reachable.
 
 ### POST /tools/{toolId}/call
 Request body should follow the OpenTool function-call schema:
@@ -231,13 +245,13 @@ Response is a `ToolReturn` JSON payload produced by the tool process.
 Behaves like `/call`, but emits SSE packets so long-running invocations can stream tokens or intermediate results.
 
 ### GET /tools/{toolId}/load
-Returns the `OpenTool` JSON description parsed from the packaged `Opentoolfile.json`. Use `/tools/{toolId}/alias?alias=new-name` (POST) to rename a tool entry, `/tools/{toolId}/stop` to stop the process, and `DELETE /tools/{toolId}` to remove it entirely (the daemon stops the process and evicts the cache entry).
+Returns the `OpenTool` JSON description parsed from the packaged `Opentoolfile.json`. Use `/tools/{toolId}/alias?alias=new-name` (POST) to rename a tool entry, `/tools/{toolId}/stop` to stop the process, and `DELETE /tools/{toolId}` to remove it entirely. Stopping emits `tool.draining` before the stop command is sent; deleting emits `tool.draining` first and `tool.removed` after the cache entry is deleted.
 
 ---
 
 ## Client Library
 
-`lib/src/client/client.dart` provides a strongly-typed Dart client that wraps the manage/server/tool APIs, handles SSE parsing, and mirrors every endpoint listed above. Import it in other Dart packages to integrate with the daemon without reimplementing the HTTP/SSE plumbing.
+`lib/src/client/client.dart` provides a strongly-typed Dart client that wraps the manage/server/tool APIs, handles SSE parsing, and mirrors every endpoint listed above, including `/tools/events`. Import it in other Dart packages to integrate with the daemon without reimplementing the HTTP/SSE plumbing.
 
 ---
 
