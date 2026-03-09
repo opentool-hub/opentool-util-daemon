@@ -1,4 +1,4 @@
-## Unreleased
+## 0.2.1
 
 - Add `/tools/events` SSE subscription for tool lifecycle changes
 - Emit `tool.draining` before stop/delete and `tool.ready` only after readiness checks pass
