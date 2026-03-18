@@ -36,13 +36,15 @@ class ToolService {
     _portAllocator = portAllocator ?? findAvailablePort;
   }
 
-  Future<void> refreshStatusesOnStartup() async {
+  Future<void> refreshStatusesOnStartup({bool autoRestore = false}) async {
     logger.log(
       LogModule.tool,
       "refreshStatusesOnStartup.start",
-      detail: "initializing tool status cache",
+      detail: "initializing tool status cache, autoRestore: $autoRestore",
     );
     final List<ToolDao> toolDaos = await _cacheToolStorage.list();
+    int restored = 0;
+    int markedNotRunning = 0;
     for (final toolDao in toolDaos) {
       if (toolDao.status != ToolStatusType.RUNNING) continue;
       try {
@@ -51,18 +53,46 @@ class ToolService {
         });
       } catch (error, stackTrace) {
         _clients.remove(toolDao.id);
-        logger.log(
-          LogModule.tool,
-          "refreshStatusesOnStartup.markNotRunning",
-          detail: "toolId: ${toolDao.id}, error: $error\n$stackTrace",
-          level: Level.WARNING,
-        );
+        if (autoRestore) {
+          try {
+            logger.log(
+              LogModule.tool,
+              "refreshStatusesOnStartup.restoring",
+              detail: "toolId: ${toolDao.id}",
+            );
+            await startTool(ToolModel.fromDao(toolDao), printStd: false);
+            restored++;
+            logger.log(
+              LogModule.tool,
+              "refreshStatusesOnStartup.restored",
+              detail: "toolId: ${toolDao.id}",
+            );
+          } catch (restoreError, restoreStackTrace) {
+            markedNotRunning++;
+            logger.log(
+              LogModule.tool,
+              "refreshStatusesOnStartup.restoreFailed",
+              detail:
+                  "toolId: ${toolDao.id}, error: $restoreError\n$restoreStackTrace",
+              level: Level.WARNING,
+            );
+          }
+        } else {
+          markedNotRunning++;
+          logger.log(
+            LogModule.tool,
+            "refreshStatusesOnStartup.markNotRunning",
+            detail: "toolId: ${toolDao.id}, error: $error\n$stackTrace",
+            level: Level.WARNING,
+          );
+        }
       }
     }
     logger.log(
       LogModule.tool,
       "refreshStatusesOnStartup.done",
-      detail: "checked: ${toolDaos.length}",
+      detail:
+          "checked: ${toolDaos.length}, restored: $restored, markedNotRunning: $markedNotRunning",
     );
   }
 

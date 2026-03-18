@@ -55,8 +55,14 @@ class Config {
   String version;
   Server? server;
   Log? log;
+  bool autoRestore;
 
-  Config({required this.version, this.server, this.log});
+  Config({
+    required this.version,
+    this.server,
+    this.log,
+    this.autoRestore = false,
+  });
 
   factory Config.fromJson(Map<String, dynamic> json) => _$ConfigFromJson(json);
 }

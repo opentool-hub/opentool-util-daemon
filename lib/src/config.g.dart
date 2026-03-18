@@ -14,6 +14,7 @@ Config _$ConfigFromJson(Map<String, dynamic> json) => Config(
   log: json['log'] == null
       ? null
       : Log.fromJson(json['log'] as Map<String, dynamic>),
+  autoRestore: json['autoRestore'] as bool? ?? false,
 );
 
 Server _$ServerFromJson(Map<String, dynamic> json) => Server(

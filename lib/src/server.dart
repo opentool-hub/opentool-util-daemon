@@ -39,7 +39,9 @@ class DaemonServer {
       hiveInternalServerStorage,
     );
     ToolService toolService = ToolService(hiveToolStorage);
-    await toolService.refreshStatusesOnStartup();
+    await toolService.refreshStatusesOnStartup(
+      autoRestore: config.autoRestore,
+    );
 
     ManageController manageController = ManageController(manageService);
     ServerController serverController = ServerController(
