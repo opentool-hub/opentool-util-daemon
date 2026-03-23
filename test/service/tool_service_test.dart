@@ -63,6 +63,10 @@ void main() {
       );
     });
 
+    test('new tool port allocation always starts from the default port', () {
+      expect(preferredPortForNewTool(), equals(9010));
+    });
+
     test(
       'refreshStatusesOnStartup marks unreachable tools as NOT_RUNNING',
       () async {

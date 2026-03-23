@@ -33,7 +33,7 @@ const String SUDO_TOKEN_FILE_NAME = 'opentool-daemon.sudo';
 const String TOOL_API_KEY_HEADER = 'x-opentool-api-key';
 
 const int DAEMON_DEFAULT_PORT = 19627;
-const int TOOL_DEFAULT_PORT = 9000;
+const int TOOL_DEFAULT_PORT = 9010;
 const String DAEMON_DEFAULT_PREFIX = "/opentool-daemon";
 const String SERVER_PREFIX = "/servers";
 const String TOOL_PREFIX = "/tools";

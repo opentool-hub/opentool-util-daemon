@@ -14,6 +14,8 @@ import 'config.dart';
 import 'exception.dart';
 import 'model.dart';
 
+int preferredPortForNewTool() => TOOL_DEFAULT_PORT;
+
 class ToolService {
   late CacheToolStorage _cacheToolStorage;
   final Map<String, OpenToolClient> _clients = {};
@@ -178,12 +180,7 @@ class ToolService {
     String host = hostType;
     cmds.add("--$CLI_ARGUMENT_HOST $host");
 
-    final List<ToolDao> existingTools = await _cacheToolStorage.list();
-    int preferredPort = TOOL_DEFAULT_PORT;
-    if (existingTools.isNotEmpty) {
-      existingTools.sort((a, b) => a.port.compareTo(b.port));
-      preferredPort = existingTools.last.port + 1;
-    }
+    final int preferredPort = preferredPortForNewTool();
     final int port = await _portAllocator(host, preferredPort);
     cmds.add("--$CLI_ARGUMENT_PORT $port");
 
