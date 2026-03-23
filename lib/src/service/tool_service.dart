@@ -293,6 +293,7 @@ class ToolService {
       port: port,
       apiKey: apiKey,
       status: ToolStatusType.RUNNING,
+      serverId: tool.serverId,
       extraCmds: tool.extraCmds == null
           ? null
           : List<String>.from(tool.extraCmds!),
