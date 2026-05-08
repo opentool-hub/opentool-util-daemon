@@ -187,19 +187,6 @@ class ToolService {
     String apiKey = uniqueId(shorter: false);
     cmds.add("--$CLI_ARGUMENT_APIKEYS $apiKey");
 
-    unawaited(
-      ExecutableUtil.ensureExecutable(entrypoint, workdir).then((_) {
-        return CommandUtil.runStream(
-          workdir,
-          entrypoint,
-          cmds,
-          onStdout: onStdout,
-          onStderr: onStderr,
-          printStd: printStd,
-        );
-      }),
-    );
-
     /// 3. add to storage
     ToolDao toolDao = ToolDao(
       id: toolId,
@@ -214,6 +201,36 @@ class ToolService {
           ? null
           : List<String>.from(extraCmds),
     );
+
+    unawaited(
+      ExecutableUtil.ensureExecutable(entrypoint, workdir).then((_) {
+        return CommandUtil.runStream(
+          workdir,
+          entrypoint,
+          cmds,
+          onStdout: onStdout,
+          onStderr: onStderr,
+          printStd: printStd,
+        );
+      }).catchError((error, stackTrace) {
+        logger.log(
+          LogModule.tool,
+          "runServer.processExited",
+          detail: "toolId: $toolId, error: $error\n$stackTrace",
+          level: Level.WARNING,
+        );
+        toolDao.status = ToolStatusType.NOT_RUNNING;
+        _cacheToolStorage.update(toolDao);
+        _clients.remove(toolId);
+        _emitLifecycleEvent(
+          ToolLifecycleEventType.UNAVAILABLE,
+          ToolLifecycleEventReason.HEALTHCHECK_FAILED,
+          ToolModel.fromDao(toolDao),
+        );
+        return -1;
+      }),
+    );
+
     await _cacheToolStorage.add(toolDao);
     _registerClient(toolDao);
     await _waitUntilReady(toolDao);
@@ -271,19 +288,6 @@ class ToolService {
     String apiKey = tool.apiKey;
     cmds.add("--$CLI_ARGUMENT_APIKEYS $apiKey");
 
-    unawaited(
-      ExecutableUtil.ensureExecutable(entrypoint, workdir).then((_) {
-        return CommandUtil.runStream(
-          workdir,
-          entrypoint,
-          cmds,
-          onStdout: onStdout,
-          onStderr: onStderr,
-          printStd: printStd,
-        );
-      }),
-    );
-
     /// 2. update to storage
     ToolDao toolDao = ToolDao(
       id: tool.id,
@@ -298,6 +302,36 @@ class ToolService {
           ? null
           : List<String>.from(tool.extraCmds!),
     );
+
+    unawaited(
+      ExecutableUtil.ensureExecutable(entrypoint, workdir).then((_) {
+        return CommandUtil.runStream(
+          workdir,
+          entrypoint,
+          cmds,
+          onStdout: onStdout,
+          onStderr: onStderr,
+          printStd: printStd,
+        );
+      }).catchError((error, stackTrace) {
+        logger.log(
+          LogModule.tool,
+          "startTool.processExited",
+          detail: "toolId: ${tool.id}, error: $error\n$stackTrace",
+          level: Level.WARNING,
+        );
+        toolDao.status = ToolStatusType.NOT_RUNNING;
+        _cacheToolStorage.update(toolDao);
+        _clients.remove(tool.id);
+        _emitLifecycleEvent(
+          ToolLifecycleEventType.UNAVAILABLE,
+          ToolLifecycleEventReason.HEALTHCHECK_FAILED,
+          ToolModel.fromDao(toolDao),
+        );
+        return -1;
+      }),
+    );
+
     await _cacheToolStorage.update(toolDao);
     _registerClient(toolDao);
     await _waitUntilReady(toolDao);
