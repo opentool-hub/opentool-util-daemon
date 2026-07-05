@@ -19,6 +19,9 @@ void main() {
               'port': 9000,
               'apiKey': 'key-1',
               'status': 'running',
+              'serverId': 'server-1',
+              'serverName': 'demo',
+              'serverTag': '1.0.0',
             },
           ];
         },
@@ -31,6 +34,8 @@ void main() {
 
       expect(captured?.queryParameters['all'], equals('1'));
       expect(tools.single.id, equals('tool-1'));
+      expect(tools.single.serverName, equals('demo'));
+      expect(tools.single.serverTag, equals('1.0.0'));
     });
 
     test('listToolWithApiKeys sets daemon api key header', () async {
@@ -47,6 +52,9 @@ void main() {
               'port': 9000,
               'apiKey': 'key-1',
               'status': 'running',
+              'serverId': 'server-1',
+              'serverName': 'demo',
+              'serverTag': '1.0.0',
             },
           ];
         },
@@ -63,6 +71,8 @@ void main() {
       expect(captured?.queryParameters['all'], equals('1'));
       expect(captured?.headers['x-opentool-api-key'], equals('admin'));
       expect(tools.single.apiKey, equals('key-1'));
+      expect(tools.single.serverName, equals('demo'));
+      expect(tools.single.serverTag, equals('1.0.0'));
     });
 
     test('setAliasTool posts the alias as a query parameter', () async {

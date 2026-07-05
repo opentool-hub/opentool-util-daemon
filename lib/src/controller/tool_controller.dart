@@ -31,8 +31,16 @@ class ToolController {
     );
     final all = queryParams['all'] == '1';
     final tools = await toolService.list(all: all);
+    final serversById = {
+      for (final server in await serverService.list()) server.id: server,
+    };
     List<Map<String, dynamic>> toolsDto = tools
-        .map((tool) => ToolDto.fromModel(tool).toJson())
+        .map(
+          (tool) => ToolDto.fromModel(
+            tool,
+            server: serversById[tool.serverId],
+          ).toJson(),
+        )
         .toList();
     logger.log(
       LogModule.http,
@@ -55,8 +63,16 @@ class ToolController {
     );
     final all = queryParams['all'] == '1';
     final tools = await toolService.list(all: all);
+    final serversById = {
+      for (final server in await serverService.list()) server.id: server,
+    };
     final toolsDto = tools
-        .map((tool) => ToolWithApiKeyDto.fromModel(tool).toJson())
+        .map(
+          (tool) => ToolWithApiKeyDto.fromModel(
+            tool,
+            server: serversById[tool.serverId],
+          ).toJson(),
+        )
         .toList();
     logger.log(
       LogModule.http,

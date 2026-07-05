@@ -185,7 +185,7 @@ class ServerService {
     String os = SystemUtil.getOS();
     String cpuArch = SystemUtil.getCpuArch();
 
-    if (opentoolfileConfig.os != os && opentoolfileConfig.cpuArch != cpuArch)
+    if (opentoolfileConfig.os != os || opentoolfileConfig.cpuArch != cpuArch)
       throw SystemMismatchException(
         os,
         cpuArch,
@@ -311,7 +311,7 @@ class ServerService {
     String os = SystemUtil.getOS();
     String cpuArch = SystemUtil.getCpuArch();
 
-    if (opentoolfileConfig.os != os && opentoolfileConfig.cpuArch != cpuArch)
+    if (opentoolfileConfig.os != os || opentoolfileConfig.cpuArch != cpuArch)
       throw SystemMismatchException(
         os,
         cpuArch,

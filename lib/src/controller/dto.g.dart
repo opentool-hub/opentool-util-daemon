@@ -247,6 +247,8 @@ ToolDto _$ToolDtoFromJson(Map<String, dynamic> json) => ToolDto(
   port: (json['port'] as num).toInt(),
   status: json['status'] as String,
   serverId: json['serverId'] as String?,
+  serverName: json['serverName'] as String?,
+  serverTag: json['serverTag'] as String?,
 );
 
 Map<String, dynamic> _$ToolDtoToJson(ToolDto instance) {
@@ -265,6 +267,8 @@ Map<String, dynamic> _$ToolDtoToJson(ToolDto instance) {
   }
 
   writeNotNull('serverId', instance.serverId);
+  writeNotNull('serverName', instance.serverName);
+  writeNotNull('serverTag', instance.serverTag);
   return val;
 }
 
@@ -277,6 +281,8 @@ ToolWithApiKeyDto _$ToolWithApiKeyDtoFromJson(Map<String, dynamic> json) =>
       apiKey: json['apiKey'] as String,
       status: json['status'] as String,
       serverId: json['serverId'] as String?,
+      serverName: json['serverName'] as String?,
+      serverTag: json['serverTag'] as String?,
     );
 
 Map<String, dynamic> _$ToolWithApiKeyDtoToJson(ToolWithApiKeyDto instance) {
@@ -296,6 +302,8 @@ Map<String, dynamic> _$ToolWithApiKeyDtoToJson(ToolWithApiKeyDto instance) {
   }
 
   writeNotNull('serverId', instance.serverId);
+  writeNotNull('serverName', instance.serverName);
+  writeNotNull('serverTag', instance.serverTag);
   return val;
 }
 

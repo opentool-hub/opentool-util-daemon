@@ -172,7 +172,9 @@ Response mirrors `OpenToolServerDto` for the imported build.
 
 ### GET /tools/list?all=1
 Returns every tool entry. Omit `all` or set it to `0` to only receive running tools.
-Each entry may include `serverId` (nullable) to indicate the source server used when the tool was created.
+Each entry may include `serverId`, `serverName`, and `serverTag` to identify the
+source server used when the tool was created. `serverName` and `serverTag` are
+omitted when the source server is unavailable.
 
 ### GET /tools/listWithApiKeys?all=0 (requires `x-opentool-api-key`)
 Send any daemon API key via the header described earlier to receive the same tool list plus the per-tool API keys:
@@ -185,7 +187,9 @@ Send any daemon API key via the header described earlier to receive the same too
     "port": 9001,
     "apiKey": "tool_pk_abc",
     "status": "RUNNING",
-    "serverId": "srv-1"
+    "serverId": "srv-1",
+    "serverName": "demo",
+    "serverTag": "1.0.0"
   }
 ]
 ```

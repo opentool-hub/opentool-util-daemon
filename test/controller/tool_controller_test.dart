@@ -31,6 +31,7 @@ void main() {
             port: 9000,
             apiKey: 'key-1',
             status: ToolStatusType.RUNNING,
+            serverId: 'tool-1',
           ),
           ToolModel(
             id: 'tool-2',
@@ -86,6 +87,8 @@ void main() {
 
       expect(decoded, hasLength(2));
       expect(decoded.first['alias'], equals('alpha'));
+      expect(decoded.first['serverName'], equals('demo'));
+      expect(decoded.first['serverTag'], equals('1.0.0'));
     });
 
     test('listToolsWithApiKeys enforces daemon api key validation', () async {
@@ -103,6 +106,8 @@ void main() {
       final decoded =
           jsonDecode(await authedResponse.readAsString()) as List<dynamic>;
       expect(decoded.first['apiKey'], equals('key-1'));
+      expect(decoded.first['serverName'], equals('demo'));
+      expect(decoded.first['serverTag'], equals('1.0.0'));
 
       final unauthorizedRequest = Request(
         'GET',

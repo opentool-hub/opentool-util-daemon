@@ -228,6 +228,168 @@ void main() {
       await bundle.dispose();
       await File(newFilePath).delete();
     });
+
+    group('import platform matching', () {
+      final nativeOs = SystemUtil.getOS();
+      final nativeCpuArch = SystemUtil.getCpuArch();
+      const otherOs = 'test-os';
+      const otherCpuArch = 'test-cpu';
+
+      test('allows import when os and cpuArch match', () async {
+        hiveServerStorage = StubHiveServerStorage();
+        internalStorage = StubHiveInternalServerStorage();
+        final service = ServerService(hiveServerStorage, internalStorage);
+        final bundle = await _createTestOtsBundle(
+          'platform-match-demo',
+          os: nativeOs,
+          cpuArch: nativeCpuArch,
+        );
+
+        final imported = await service.import(bundle.zipPath);
+
+        expect(imported.name, equals('platform-match-demo'));
+
+        final newFilePath = _serverOtsFilePath(
+          imported.name,
+          imported.internalId,
+        );
+        expect(await File(newFilePath).exists(), isTrue);
+
+        await bundle.dispose();
+        await File(newFilePath).delete();
+      });
+
+      test('rejects import when os differs and cpuArch matches', () async {
+        hiveServerStorage = StubHiveServerStorage();
+        internalStorage = StubHiveInternalServerStorage();
+        final service = ServerService(hiveServerStorage, internalStorage);
+        final bundle = await _createTestOtsBundle(
+          'platform-os-mismatch-demo',
+          os: otherOs,
+          cpuArch: nativeCpuArch,
+        );
+
+        await expectLater(
+          () => service.import(bundle.zipPath),
+          throwsA(isA<SystemMismatchException>()),
+        );
+
+        await bundle.dispose();
+      });
+
+      test('rejects import when os matches and cpuArch differs', () async {
+        hiveServerStorage = StubHiveServerStorage();
+        internalStorage = StubHiveInternalServerStorage();
+        final service = ServerService(hiveServerStorage, internalStorage);
+        final bundle = await _createTestOtsBundle(
+          'platform-cpu-mismatch-demo',
+          os: nativeOs,
+          cpuArch: otherCpuArch,
+        );
+
+        await expectLater(
+          () => service.import(bundle.zipPath),
+          throwsA(isA<SystemMismatchException>()),
+        );
+
+        await bundle.dispose();
+      });
+
+      test('rejects import when both os and cpuArch differ', () async {
+        hiveServerStorage = StubHiveServerStorage();
+        internalStorage = StubHiveInternalServerStorage();
+        final service = ServerService(hiveServerStorage, internalStorage);
+        final bundle = await _createTestOtsBundle(
+          'platform-full-mismatch-demo',
+          os: otherOs,
+          cpuArch: otherCpuArch,
+        );
+
+        await expectLater(
+          () => service.import(bundle.zipPath),
+          throwsA(isA<SystemMismatchException>()),
+        );
+
+        await bundle.dispose();
+      });
+    });
+
+    group('afterPullToTemp platform matching', () {
+      final nativeOs = SystemUtil.getOS();
+      final nativeCpuArch = SystemUtil.getCpuArch();
+      const otherOs = 'test-os';
+      const otherCpuArch = 'test-cpu';
+
+      test('allows pull when os and cpuArch match', () async {
+        hiveServerStorage = StubHiveServerStorage();
+        internalStorage = StubHiveInternalServerStorage();
+        final service = ServerService(hiveServerStorage, internalStorage);
+        final bundle = await _createTestOtsBundle(
+          'pull-platform-match-demo',
+          os: nativeOs,
+          cpuArch: nativeCpuArch,
+        );
+
+        await service.afterPullToTemp(bundle.zipPath);
+
+        await bundle.dispose();
+        await _deleteGeneratedOtsFiles('pull-platform-match-demo');
+      });
+
+      test('rejects pull when os differs and cpuArch matches', () async {
+        hiveServerStorage = StubHiveServerStorage();
+        internalStorage = StubHiveInternalServerStorage();
+        final service = ServerService(hiveServerStorage, internalStorage);
+        final bundle = await _createTestOtsBundle(
+          'pull-platform-os-mismatch-demo',
+          os: otherOs,
+          cpuArch: nativeCpuArch,
+        );
+
+        await expectLater(
+          () => service.afterPullToTemp(bundle.zipPath),
+          throwsA(isA<SystemMismatchException>()),
+        );
+
+        await bundle.dispose();
+      });
+
+      test('rejects pull when os matches and cpuArch differs', () async {
+        hiveServerStorage = StubHiveServerStorage();
+        internalStorage = StubHiveInternalServerStorage();
+        final service = ServerService(hiveServerStorage, internalStorage);
+        final bundle = await _createTestOtsBundle(
+          'pull-platform-cpu-mismatch-demo',
+          os: nativeOs,
+          cpuArch: otherCpuArch,
+        );
+
+        await expectLater(
+          () => service.afterPullToTemp(bundle.zipPath),
+          throwsA(isA<SystemMismatchException>()),
+        );
+
+        await bundle.dispose();
+      });
+
+      test('rejects pull when both os and cpuArch differ', () async {
+        hiveServerStorage = StubHiveServerStorage();
+        internalStorage = StubHiveInternalServerStorage();
+        final service = ServerService(hiveServerStorage, internalStorage);
+        final bundle = await _createTestOtsBundle(
+          'pull-platform-full-mismatch-demo',
+          os: otherOs,
+          cpuArch: otherCpuArch,
+        );
+
+        await expectLater(
+          () => service.afterPullToTemp(bundle.zipPath),
+          throwsA(isA<SystemMismatchException>()),
+        );
+
+        await bundle.dispose();
+      });
+    });
   });
 }
 
@@ -235,7 +397,12 @@ String _serverOtsFilePath(String name, String internalId) {
   return '$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}$name-$internalId.ots';
 }
 
-Future<_TestOtsBundle> _createTestOtsBundle(String name, {String? tag}) async {
+Future<_TestOtsBundle> _createTestOtsBundle(
+  String name, {
+  String? tag,
+  String? os,
+  String? cpuArch,
+}) async {
   final rootDir = await Directory.systemTemp.createTemp('ots_bundle_');
   final contentDir = Directory(p.join(rootDir.path, 'content'));
   await contentDir.create(recursive: true);
@@ -243,8 +410,8 @@ Future<_TestOtsBundle> _createTestOtsBundle(String name, {String? tag}) async {
   final config = OpentoolfileConfig(
     name: name,
     tag: tag,
-    os: SystemUtil.getOS(),
-    cpuArch: SystemUtil.getCpuArch(),
+    os: os ?? SystemUtil.getOS(),
+    cpuArch: cpuArch ?? SystemUtil.getCpuArch(),
     build: OpenToolBuild(args: const {}, runs: const []),
     run: OpenToolRun(
       envs: const {},
@@ -261,6 +428,19 @@ Future<_TestOtsBundle> _createTestOtsBundle(String name, {String? tag}) async {
   final zipPath = p.join(rootDir.path, 'bundle.ots');
   await ZipUtil.zipDirectory(contentDir.path, zipPath);
   return _TestOtsBundle(zipPath, rootDir);
+}
+
+Future<void> _deleteGeneratedOtsFiles(String name) async {
+  final serverDir = Directory(
+    '$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER',
+  );
+  if (!await serverDir.exists()) return;
+
+  await for (final entity in serverDir.list()) {
+    if (entity is File && p.basename(entity.path).startsWith('$name-')) {
+      await entity.delete();
+    }
+  }
 }
 
 class _TestOtsBundle {

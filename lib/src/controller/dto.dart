@@ -290,6 +290,8 @@ class ToolDto {
   int port;
   String status;
   String? serverId;
+  String? serverName;
+  String? serverTag;
 
   ToolDto({
     required this.id,
@@ -298,6 +300,8 @@ class ToolDto {
     required this.port,
     required this.status,
     this.serverId,
+    this.serverName,
+    this.serverTag,
   });
 
   factory ToolDto.fromJson(Map<String, dynamic> json) =>
@@ -305,13 +309,15 @@ class ToolDto {
 
   Map<String, dynamic> toJson() => _$ToolDtoToJson(this);
 
-  factory ToolDto.fromModel(ToolModel tool) => ToolDto(
+  factory ToolDto.fromModel(ToolModel tool, {ServerModel? server}) => ToolDto(
     id: tool.id,
     alias: tool.alias,
     host: tool.host,
     port: tool.port,
     status: tool.status,
     serverId: tool.serverId,
+    serverName: server?.name,
+    serverTag: server?.tag,
   );
 }
 
@@ -324,6 +330,8 @@ class ToolWithApiKeyDto {
   String apiKey;
   String status;
   String? serverId;
+  String? serverName;
+  String? serverTag;
 
   ToolWithApiKeyDto({
     required this.id,
@@ -333,6 +341,8 @@ class ToolWithApiKeyDto {
     required this.apiKey,
     required this.status,
     this.serverId,
+    this.serverName,
+    this.serverTag,
   });
 
   factory ToolWithApiKeyDto.fromJson(Map<String, dynamic> json) =>
@@ -340,15 +350,18 @@ class ToolWithApiKeyDto {
 
   Map<String, dynamic> toJson() => _$ToolWithApiKeyDtoToJson(this);
 
-  factory ToolWithApiKeyDto.fromModel(ToolModel tool) => ToolWithApiKeyDto(
-    id: tool.id,
-    alias: tool.alias,
-    host: tool.host,
-    port: tool.port,
-    apiKey: tool.apiKey,
-    status: tool.status,
-    serverId: tool.serverId,
-  );
+  factory ToolWithApiKeyDto.fromModel(ToolModel tool, {ServerModel? server}) =>
+      ToolWithApiKeyDto(
+        id: tool.id,
+        alias: tool.alias,
+        host: tool.host,
+        port: tool.port,
+        apiKey: tool.apiKey,
+        status: tool.status,
+        serverId: tool.serverId,
+        serverName: server?.name,
+        serverTag: server?.tag,
+      );
 }
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
