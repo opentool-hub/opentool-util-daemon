@@ -1,3 +1,7 @@
+## 0.2.2
+
+- add server metadata to tool list responses
+
 ## 0.2.1
 
 - Add `/tools/events` SSE subscription for tool lifecycle changes

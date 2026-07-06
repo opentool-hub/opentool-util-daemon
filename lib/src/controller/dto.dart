@@ -283,6 +283,23 @@ class CommandResultDto {
 }
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
+class ToolServerDto {
+  String repo;
+  String name;
+  String tag;
+
+  ToolServerDto({required this.repo, required this.name, required this.tag});
+
+  factory ToolServerDto.fromJson(Map<String, dynamic> json) =>
+      _$ToolServerDtoFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ToolServerDtoToJson(this);
+
+  factory ToolServerDto.fromModel(ServerModel server) =>
+      ToolServerDto(repo: server.repo, name: server.name, tag: server.tag);
+}
+
+@JsonSerializable(explicitToJson: true, includeIfNull: false)
 class ToolDto {
   String id;
   String alias;
@@ -290,8 +307,7 @@ class ToolDto {
   int port;
   String status;
   String? serverId;
-  String? serverName;
-  String? serverTag;
+  ToolServerDto? server;
 
   ToolDto({
     required this.id,
@@ -300,8 +316,7 @@ class ToolDto {
     required this.port,
     required this.status,
     this.serverId,
-    this.serverName,
-    this.serverTag,
+    this.server,
   });
 
   factory ToolDto.fromJson(Map<String, dynamic> json) =>
@@ -316,8 +331,7 @@ class ToolDto {
     port: tool.port,
     status: tool.status,
     serverId: tool.serverId,
-    serverName: server?.name,
-    serverTag: server?.tag,
+    server: server == null ? null : ToolServerDto.fromModel(server),
   );
 }
 
@@ -330,8 +344,7 @@ class ToolWithApiKeyDto {
   String apiKey;
   String status;
   String? serverId;
-  String? serverName;
-  String? serverTag;
+  ToolServerDto? server;
 
   ToolWithApiKeyDto({
     required this.id,
@@ -341,8 +354,7 @@ class ToolWithApiKeyDto {
     required this.apiKey,
     required this.status,
     this.serverId,
-    this.serverName,
-    this.serverTag,
+    this.server,
   });
 
   factory ToolWithApiKeyDto.fromJson(Map<String, dynamic> json) =>
@@ -359,8 +371,7 @@ class ToolWithApiKeyDto {
         apiKey: tool.apiKey,
         status: tool.status,
         serverId: tool.serverId,
-        serverName: server?.name,
-        serverTag: server?.tag,
+        server: server == null ? null : ToolServerDto.fromModel(server),
       );
 }
 

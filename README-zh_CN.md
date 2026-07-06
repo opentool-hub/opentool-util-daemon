@@ -178,9 +178,9 @@ SSE `event:DATA` 中包含正在执行的脚本与输出：
 
 ### GET /tools/list?all=1
 返回全部条目；省略 `all` 或设为 `0` 时仅返回运行中的工具。
-条目中可能包含 `serverId`、`serverName` 和 `serverTag`，用于标识创建该 Tool
-时所使用的来源 Server；来源 Server 不可用时，`serverName` 和 `serverTag`
-不会返回。
+条目中可能包含 `serverId`，以及由 `repo`、`name` 和 `tag` 组成的 `server`
+对象，用于标识创建该 Tool 时所使用的来源 Server；来源 Server 不可用时，
+`server` 对象不会返回。
 
 ### GET /tools/listWithApiKeys?all=0（需 `x-opentool-api-key`）
 在请求头中携带任意守护进程 API Key，可得到附带 Tool API Key 的列表：
@@ -194,8 +194,11 @@ SSE `event:DATA` 中包含正在执行的脚本与输出：
     "apiKey": "tool_pk_abc",
     "status": "RUNNING",
     "serverId": "srv-1",
-    "serverName": "demo",
-    "serverTag": "1.0.0"
+    "server": {
+      "repo": "hub/opentool",
+      "name": "demo",
+      "tag": "1.0.0"
+    }
   }
 ]
 ```

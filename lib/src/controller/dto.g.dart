@@ -240,6 +240,20 @@ Map<String, dynamic> _$CommandResultDtoToJson(CommandResultDto instance) {
   return val;
 }
 
+ToolServerDto _$ToolServerDtoFromJson(Map<String, dynamic> json) =>
+    ToolServerDto(
+      repo: json['repo'] as String,
+      name: json['name'] as String,
+      tag: json['tag'] as String,
+    );
+
+Map<String, dynamic> _$ToolServerDtoToJson(ToolServerDto instance) =>
+    <String, dynamic>{
+      'repo': instance.repo,
+      'name': instance.name,
+      'tag': instance.tag,
+    };
+
 ToolDto _$ToolDtoFromJson(Map<String, dynamic> json) => ToolDto(
   id: json['id'] as String,
   alias: json['alias'] as String,
@@ -247,8 +261,9 @@ ToolDto _$ToolDtoFromJson(Map<String, dynamic> json) => ToolDto(
   port: (json['port'] as num).toInt(),
   status: json['status'] as String,
   serverId: json['serverId'] as String?,
-  serverName: json['serverName'] as String?,
-  serverTag: json['serverTag'] as String?,
+  server: json['server'] == null
+      ? null
+      : ToolServerDto.fromJson(json['server'] as Map<String, dynamic>),
 );
 
 Map<String, dynamic> _$ToolDtoToJson(ToolDto instance) {
@@ -267,8 +282,7 @@ Map<String, dynamic> _$ToolDtoToJson(ToolDto instance) {
   }
 
   writeNotNull('serverId', instance.serverId);
-  writeNotNull('serverName', instance.serverName);
-  writeNotNull('serverTag', instance.serverTag);
+  writeNotNull('server', instance.server?.toJson());
   return val;
 }
 
@@ -281,8 +295,9 @@ ToolWithApiKeyDto _$ToolWithApiKeyDtoFromJson(Map<String, dynamic> json) =>
       apiKey: json['apiKey'] as String,
       status: json['status'] as String,
       serverId: json['serverId'] as String?,
-      serverName: json['serverName'] as String?,
-      serverTag: json['serverTag'] as String?,
+      server: json['server'] == null
+          ? null
+          : ToolServerDto.fromJson(json['server'] as Map<String, dynamic>),
     );
 
 Map<String, dynamic> _$ToolWithApiKeyDtoToJson(ToolWithApiKeyDto instance) {
@@ -302,8 +317,7 @@ Map<String, dynamic> _$ToolWithApiKeyDtoToJson(ToolWithApiKeyDto instance) {
   }
 
   writeNotNull('serverId', instance.serverId);
-  writeNotNull('serverName', instance.serverName);
-  writeNotNull('serverTag', instance.serverTag);
+  writeNotNull('server', instance.server?.toJson());
   return val;
 }
 
