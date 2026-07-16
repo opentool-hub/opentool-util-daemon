@@ -10,6 +10,7 @@ import '../storage/cache_storage.dart';
 import '../storage/hive_storage.dart';
 import '../storage/dao.dart';
 import '../utils/executable_util.dart';
+import '../utils/port_reservation_allocator.dart';
 import 'config.dart';
 import 'exception.dart';
 import 'model.dart';
@@ -32,7 +33,7 @@ class ToolService {
   final StreamController<ToolLifecycleEventModel> _eventController =
       StreamController<ToolLifecycleEventModel>.broadcast();
   late final OpenToolClient Function(ToolDao toolDao) _clientFactory;
-  late final Future<int> Function(String host, int startPort) _portAllocator;
+  late final PortReservationAllocator _portReservationAllocator;
   late final Future<bool> Function(String host, int port) _portAvailability;
   late final ToolProcessLauncher _processLauncher;
   final Future<ServerModel> Function(String serverId)? _serverGetter;
@@ -54,6 +55,7 @@ class ToolService {
     CacheToolStorage? cacheToolStorage,
     OpenToolClient Function(ToolDao toolDao)? clientFactory,
     Future<int> Function(String host, int startPort)? portAllocator,
+    PortReservationAllocator? portReservationAllocator,
     Future<bool> Function(String host, int port)? portAvailability,
     ToolProcessLauncher? processLauncher,
     Future<ServerModel> Function(String serverId)? serverGetter,
@@ -66,7 +68,9 @@ class ToolService {
        _readyCheckTimeout = readyCheckTimeout {
     _cacheToolStorage = cacheToolStorage ?? CacheToolStorage(hive);
     _clientFactory = clientFactory ?? _buildClient;
-    _portAllocator = portAllocator ?? findAvailablePort;
+    _portReservationAllocator =
+        portReservationAllocator ??
+        PortReservationAllocator(portAllocator ?? findAvailablePort);
     _portAvailability = portAvailability ?? isPortAvailable;
     _processLauncher =
         processLauncher ??
@@ -452,6 +456,7 @@ class ToolService {
     }
 
     final generation = _nextLifecycleGeneration(toolId);
+    int? reservedPort;
     try {
       if (toolDao.status == ToolStatusType.RUNNING) {
         await _prepareUnhealthyToolForRestart(toolDao);
@@ -484,7 +489,8 @@ class ToolService {
       if (toolDao.extraCmds != null) commands.addAll(toolDao.extraCmds!);
       commands.add("--$CLI_ARGUMENT_TAG ${toolDao.tag}");
       commands.add("--$CLI_ARGUMENT_HOST ${toolDao.host}");
-      final port = await _portAllocator(toolDao.host, toolDao.port);
+      final port = await _allocateAndReservePort(toolDao.host, toolDao.port);
+      reservedPort = port;
       commands.add("--$CLI_ARGUMENT_PORT $port");
       commands.add("--$CLI_ARGUMENT_APIKEYS ${toolDao.apiKey}");
 
@@ -557,8 +563,15 @@ class ToolService {
         level: Level.WARNING,
       );
       rethrow;
+    } finally {
+      if (reservedPort != null) {
+        await _portReservationAllocator.release(reservedPort);
+      }
     }
   }
+
+  Future<int> _allocateAndReservePort(String host, int startPort) =>
+      _portReservationAllocator.allocateAndReserve(host, startPort);
 
   /// Verifies the tool process is alive by calling its /version endpoint.
   Future<void> check(String toolId) async {

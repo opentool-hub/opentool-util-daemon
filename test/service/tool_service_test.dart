@@ -7,6 +7,7 @@ import 'package:opentool_daemon/src/service/exception.dart';
 import 'package:opentool_daemon/src/service/model.dart';
 import 'package:opentool_daemon/src/service/tool_service.dart';
 import 'package:opentool_daemon/src/storage/dao.dart';
+import 'package:opentool_daemon/src/utils/port_reservation_allocator.dart';
 import 'package:opentool_daemon/src/utils/zip_util.dart';
 import 'package:opentool_dart/opentool_client.dart';
 import 'package:test/test.dart';
@@ -367,6 +368,237 @@ void main() {
 
         expect(processStarts, 1);
         expect((await storage.get(dao.id))!.status, ToolStatusType.RUNNING);
+      });
+
+      test(
+        'different runServer calls reserve distinct ports until ready',
+        () async {
+          final otherServer = ServerModel(
+            id: 'server-other',
+            alias: 'server-other',
+            registry: NULL_REGISTRY,
+            repo: NULL_REPO,
+            name: 'other-tool',
+            tag: '1.0.0',
+            internalId: 'internal-other',
+          );
+          await _writeServerBundle(otherServer);
+          final allocator = PortReservationAllocator(
+            (_, startPort) async => startPort,
+          );
+          final clients = <String, _StartupGateClient>{};
+          final registrations = <String, int>{};
+          final launchedPorts = <int>[];
+          final bothLaunched = Completer<void>();
+          final concurrentService = ToolService(
+            storage,
+            portReservationAllocator: allocator,
+            clientFactory: (tool) {
+              final client = clients.putIfAbsent(
+                tool.id,
+                _StartupGateClient.new,
+              );
+              final count = (registrations[tool.id] ?? 0) + 1;
+              registrations[tool.id] = count;
+              if (count > 1) client.starting = true;
+              return client;
+            },
+            processLauncher: (_, _, commands, _, _, _) {
+              launchedPorts.add(_commandPort(commands));
+              if (launchedPorts.length == 2) bothLaunched.complete();
+              return Completer<int>().future;
+            },
+          );
+
+          final first = concurrentService.runServer(server, HostType.LOCALHOST);
+          final second = concurrentService.runServer(
+            otherServer,
+            HostType.LOCALHOST,
+          );
+          await bothLaunched.future;
+
+          expect(launchedPorts..sort(), [9010, 9011]);
+          expect(allocator.isReserved(9010), isTrue);
+          expect(allocator.isReserved(9011), isTrue);
+
+          for (final client in clients.values) {
+            client.readiness.complete(Version(version: '1.0.0'));
+          }
+          final tools = await Future.wait([first, second]);
+
+          expect(tools.map((tool) => tool.port).toSet(), {9010, 9011});
+          expect(allocator.isReserved(9010), isFalse);
+          expect(allocator.isReserved(9011), isFalse);
+        },
+      );
+
+      test(
+        'runServer skips a port reserved by an in-flight startTool',
+        () async {
+          final existing = _toolDao(
+            'tool-existing-start',
+            server,
+            ToolStatusType.NOT_RUNNING,
+          );
+          storage.seed([existing]);
+          await _writeToolWorkspace(existing.id, server);
+          final otherServer = ServerModel(
+            id: 'server-concurrent-run',
+            alias: 'server-concurrent-run',
+            registry: NULL_REGISTRY,
+            repo: NULL_REPO,
+            name: 'concurrent-run-tool',
+            tag: '1.0.0',
+            internalId: 'internal-concurrent-run',
+          );
+          await _writeServerBundle(otherServer);
+          final allocator = PortReservationAllocator(
+            (_, startPort) async => startPort,
+          );
+          final clients = <String, _StartupGateClient>{};
+          final registrations = <String, int>{};
+          final launchedPorts = <int>[];
+          final firstLaunched = Completer<void>();
+          final secondLaunched = Completer<void>();
+          final concurrentService = ToolService(
+            storage,
+            portReservationAllocator: allocator,
+            clientFactory: (tool) {
+              final client = clients.putIfAbsent(
+                tool.id,
+                _StartupGateClient.new,
+              );
+              final count = (registrations[tool.id] ?? 0) + 1;
+              registrations[tool.id] = count;
+              if (count > 1) client.starting = true;
+              return client;
+            },
+            processLauncher: (_, _, commands, _, _, _) {
+              launchedPorts.add(_commandPort(commands));
+              if (launchedPorts.length == 1) firstLaunched.complete();
+              if (launchedPorts.length == 2) secondLaunched.complete();
+              return Completer<int>().future;
+            },
+          );
+
+          final start = concurrentService.startTool(
+            ToolModel.fromDao(existing),
+          );
+          await firstLaunched.future;
+          expect(allocator.isReserved(9010), isTrue);
+
+          final run = concurrentService.runServer(
+            otherServer,
+            HostType.LOCALHOST,
+          );
+          await secondLaunched.future;
+
+          expect(launchedPorts, [9010, 9011]);
+          final runDao = (await storage.list()).singleWhere(
+            (tool) => tool.serverId == otherServer.id,
+          );
+          expect(runDao.port, 9011);
+
+          for (final client in clients.values) {
+            client.readiness.complete(Version(version: '1.0.0'));
+          }
+          await Future.wait<void>([start, run.then((_) {})]);
+        },
+      );
+
+      test('startTool skips an unavailable port and updates ToolDao', () async {
+        final dao = _toolDao(
+          'tool-port-fallback',
+          server,
+          ToolStatusType.NOT_RUNNING,
+        );
+        storage.seed([dao]);
+        await _writeToolWorkspace(dao.id, server);
+        final client = _MutableHealthClient(healthy: false);
+        final launchedPorts = <int>[];
+        final fallbackService = ToolService(
+          storage,
+          clientFactory: (_) => client,
+          portAllocator: (_, startPort) async =>
+              startPort == 9010 ? 9011 : startPort,
+          processLauncher: (_, _, commands, _, _, _) {
+            launchedPorts.add(_commandPort(commands));
+            client.healthy = true;
+            return Completer<int>().future;
+          },
+        );
+
+        await fallbackService.startTool(ToolModel.fromDao(dao));
+
+        expect(launchedPorts, [9011]);
+        expect((await storage.get(dao.id))!.port, 9011);
+      });
+
+      test('launch failure releases the reservation for a retry', () async {
+        final dao = _toolDao(
+          'tool-launch-retry',
+          server,
+          ToolStatusType.NOT_RUNNING,
+        );
+        storage.seed([dao]);
+        await _writeToolWorkspace(dao.id, server);
+        final allocatedStarts = <int>[];
+        final allocator = PortReservationAllocator((_, startPort) async {
+          allocatedStarts.add(startPort);
+          return startPort;
+        });
+        final client = _MutableHealthClient(healthy: false);
+        var failLaunch = true;
+        final retryService = ToolService(
+          storage,
+          portReservationAllocator: allocator,
+          clientFactory: (_) => client,
+          processLauncher: (_, _, _, _, _, _) {
+            if (failLaunch) throw StateError('launch failed');
+            client.healthy = true;
+            return Completer<int>().future;
+          },
+        );
+
+        await expectLater(
+          retryService.startTool(ToolModel.fromDao(dao)),
+          throwsStateError,
+        );
+        expect(allocator.isReserved(9010), isFalse);
+
+        failLaunch = false;
+        await retryService.startTool(ToolModel.fromDao(dao));
+
+        expect(allocatedStarts, [9010, 9010]);
+        expect((await storage.get(dao.id))!.port, 9010);
+      });
+
+      test('readiness timeout releases the reservation', () async {
+        final dao = _toolDao(
+          'tool-readiness-timeout',
+          server,
+          ToolStatusType.NOT_RUNNING,
+        );
+        storage.seed([dao]);
+        await _writeToolWorkspace(dao.id, server);
+        final allocator = PortReservationAllocator(
+          (_, startPort) async => startPort,
+        );
+        final timeoutService = ToolService(
+          storage,
+          portReservationAllocator: allocator,
+          clientFactory: (_) => _MutableHealthClient(healthy: false),
+          processLauncher: (_, _, _, _, _, _) => Completer<int>().future,
+          readyCheckTimeout: Duration.zero,
+        );
+
+        await expectLater(
+          timeoutService.startTool(ToolModel.fromDao(dao)),
+          throwsA(anything),
+        );
+
+        expect(allocator.isReserved(9010), isFalse);
+        expect((await storage.get(dao.id))!.status, ToolStatusType.NOT_RUNNING);
       });
 
       test('start persists starting before running', () async {
@@ -817,6 +1049,20 @@ class _ControlledLifecycleClient extends OpenToolClient {
   }
 }
 
+class _StartupGateClient extends OpenToolClient {
+  bool starting = false;
+  final Completer<Version> readiness = Completer<Version>();
+
+  _StartupGateClient()
+    : super(toolHost: '127.0.0.1', toolPort: TOOL_DEFAULT_PORT);
+
+  @override
+  Future<Version> version() {
+    if (!starting) throw const SocketException('not started');
+    return readiness.future;
+  }
+}
+
 class _DelayedStopClient extends OpenToolClient {
   bool healthy = true;
   final Completer<void> stopStarted = Completer<void>();
@@ -898,4 +1144,12 @@ Future<void> _writeConfigAndEntrypoint(String root, ServerModel server) async {
   final entrypoint = File('$root/dist/tool-bin');
   await entrypoint.create(recursive: true);
   await entrypoint.writeAsString('#!/bin/sh\n');
+}
+
+int _commandPort(List<String> commands) {
+  final prefix = '--$CLI_ARGUMENT_PORT ';
+  final argument = commands.singleWhere(
+    (command) => command.startsWith(prefix),
+  );
+  return int.parse(argument.substring(prefix.length));
 }
