@@ -42,6 +42,20 @@ void main() {
             apiKey: 'key-2',
             status: ToolStatusType.NOT_RUNNING,
           ),
+          ToolModel(
+            id: 'tool-orphan',
+            alias: 'orphan',
+            tag: '0.1.0',
+            host: '127.0.0.1',
+            port: 9002,
+            apiKey: 'key-orphan',
+            status: ToolStatusType.NOT_RUNNING,
+            serverId: 'missing-server',
+            serverRegistry: 'native',
+            serverRepo: 'native',
+            serverName: 'opentool-server-markitdown',
+            serverTag: '0.1.0',
+          ),
         ],
         toolReturns: {
           'tool-1': ToolReturn(id: 'call-1', result: {'marker': 'from-tool'}),
@@ -85,12 +99,17 @@ void main() {
       final decoded =
           jsonDecode(await response.readAsString()) as List<dynamic>;
 
-      expect(decoded, hasLength(2));
+      expect(decoded, hasLength(3));
       expect(decoded.first['alias'], equals('alpha'));
       expect(decoded.first['server'], {
         'repo': 'hub/opentool',
         'name': 'demo',
         'tag': '1.0.0',
+      });
+      expect(decoded.last['server'], {
+        'repo': 'native',
+        'name': 'opentool-server-markitdown',
+        'tag': '0.1.0',
       });
     });
 

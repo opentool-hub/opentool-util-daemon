@@ -132,6 +132,9 @@ class FakeToolService implements ToolService {
   }
 
   @override
+  Future<int> repairServerAssociations(List<ServerModel> servers) async => 0;
+
+  @override
   Future<ToolModel> runServer(
     ServerModel server,
     String hostType, {

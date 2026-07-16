@@ -1,5 +1,40 @@
 import '../storage/dao.dart';
 
+class ServerIdentity {
+  final String registry;
+  final String repo;
+  final String name;
+  final String tag;
+
+  const ServerIdentity({
+    required this.registry,
+    required this.repo,
+    required this.name,
+    required this.tag,
+  });
+
+  factory ServerIdentity.fromServer(ServerModel server) => ServerIdentity(
+    registry: server.registry,
+    repo: server.repo,
+    name: server.name,
+    tag: server.tag,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is ServerIdentity &&
+      registry == other.registry &&
+      repo == other.repo &&
+      name == other.name &&
+      tag == other.tag;
+
+  @override
+  int get hashCode => Object.hash(registry, repo, name, tag);
+
+  @override
+  String toString() => '$registry/$repo/$name:$tag';
+}
+
 class ToolStatusType {
   static const String RUNNING = 'running';
   static const String NOT_RUNNING = 'notRunning';
@@ -92,6 +127,8 @@ class ServerModel {
       internalId: internalId,
     );
   }
+
+  ServerIdentity get identity => ServerIdentity.fromServer(this);
 }
 
 class ToolModel {
@@ -104,6 +141,10 @@ class ToolModel {
   String status;
   List<String>? extraCmds;
   String? serverId;
+  String? serverRegistry;
+  String? serverRepo;
+  String? serverName;
+  String? serverTag;
 
   ToolModel({
     required this.id,
@@ -115,7 +156,22 @@ class ToolModel {
     required this.status,
     this.serverId,
     this.extraCmds,
+    this.serverRegistry,
+    this.serverRepo,
+    this.serverName,
+    this.serverTag,
   });
+
+  ServerIdentity? get serverIdentity {
+    final registry = serverRegistry;
+    final repo = serverRepo;
+    final name = serverName;
+    final tag = serverTag;
+    if (registry == null || repo == null || name == null || tag == null) {
+      return null;
+    }
+    return ServerIdentity(registry: registry, repo: repo, name: name, tag: tag);
+  }
 
   factory ToolModel.fromDao(ToolDao dao) {
     return ToolModel(
@@ -127,6 +183,10 @@ class ToolModel {
       apiKey: dao.apiKey,
       status: dao.status,
       serverId: dao.serverId,
+      serverRegistry: dao.serverRegistry,
+      serverRepo: dao.serverRepo,
+      serverName: dao.serverName,
+      serverTag: dao.serverTag,
       extraCmds: dao.extraCmds == null
           ? null
           : List<String>.from(dao.extraCmds!),
@@ -143,6 +203,10 @@ class ToolModel {
       apiKey: apiKey,
       status: status,
       serverId: serverId,
+      serverRegistry: serverRegistry,
+      serverRepo: serverRepo,
+      serverName: serverName,
+      serverTag: serverTag,
       extraCmds: extraCmds == null ? null : List<String>.from(extraCmds!),
     );
   }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:opentool_daemon/opentool_daemon_utils.dart';
 import 'package:unique_id_dart/unique_id_dart.dart';
@@ -13,12 +14,19 @@ import 'model.dart';
 class ServerService {
   late CacheServerStorage _cacheServerStorage;
   late HiveInternalServerStorage _internalServerStorage;
+  final CacheToolStorage? _toolStorage;
+  final Future<void> Function(List<ServerModel>)? _onServersChanged;
+  final Map<ServerIdentity, Future<void>> _identityTails = {};
 
   ServerService(
     HiveServerStorage hiveTag,
-    HiveInternalServerStorage hiveServer,
-  ) {
-    _cacheServerStorage = CacheServerStorage(hiveTag);
+    HiveInternalServerStorage hiveServer, {
+    CacheServerStorage? cacheServerStorage,
+    CacheToolStorage? toolStorage,
+    Future<void> Function(List<ServerModel>)? onServersChanged,
+  }) : _toolStorage = toolStorage,
+       _onServersChanged = onServersChanged {
+    _cacheServerStorage = cacheServerStorage ?? CacheServerStorage(hiveTag);
     _internalServerStorage = hiveServer;
   }
 
@@ -107,24 +115,14 @@ class ServerService {
       file: otsFilePath,
     );
     await _internalServerStorage.add(serverDao);
-    String serverId = uniqueId();
-
-    ServerDao tagDao = ServerDao(
-      id: serverId,
-      alias: serverId,
-      registry: NULL_REGISTRY,
-      repo: NULL_REPO,
-      name: name,
-      tag: tag ?? NULL_TAG,
-      internalId: internalId,
-    );
-    await _cacheServerStorage.list();
-    await _cacheServerStorage.add(tagDao);
-
-    await _removeServersByNameAndTag(
-      name,
-      tag ?? NULL_TAG,
-      excludeServerId: serverId,
+    final server = await _upsertServerIdentity(
+      ServerIdentity(
+        registry: NULL_REGISTRY,
+        repo: NULL_REPO,
+        name: name,
+        tag: tag ?? NULL_TAG,
+      ),
+      internalId,
     );
 
     /// 7. remove temp folder
@@ -132,7 +130,7 @@ class ServerService {
     logger.log(
       LogModule.server,
       "build.result",
-      detail: "name: $name, tag: ${tag ?? NULL_TAG}, serverId: $serverId",
+      detail: "name: $name, tag: ${tag ?? NULL_TAG}, serverId: ${server.id}",
     );
   }
 
@@ -332,25 +330,16 @@ class ServerService {
     );
     await _internalServerStorage.add(internalServerDao);
 
-    String serverId = uniqueId();
-    ServerDao serverDao = ServerDao(
-      id: serverId,
-      alias: serverId,
-      registry: NULL_REGISTRY,
-      repo: NULL_REPO,
-      name: opentoolfileConfig.name,
-      tag: opentoolfileConfig.tag ?? NULL_TAG,
-      internalId: internalId,
-    );
-    await _cacheServerStorage.list();
-    await _cacheServerStorage.add(serverDao);
-    await _removeServersByNameAndTag(
-      serverDao.name,
-      serverDao.tag,
-      excludeServerId: serverId,
+    final serverModel = await _upsertServerIdentity(
+      ServerIdentity(
+        registry: NULL_REGISTRY,
+        repo: NULL_REPO,
+        name: opentoolfileConfig.name,
+        tag: opentoolfileConfig.tag ?? NULL_TAG,
+      ),
+      internalId,
     );
 
-    ServerModel serverModel = ServerModel.fromDao(serverDao);
     logger.log(
       LogModule.server,
       "import.result",
@@ -366,7 +355,6 @@ class ServerService {
       detail: "serverId: $serverId, tag: ${tag ?? NULL_TAG}",
     );
 
-    /// retag in place (serverId stays stable)
     ServerDao? serverDao = await _cacheServerStorage.get(serverId);
     if (serverDao == null) throw ServerNotFoundException(serverId);
     final newTag = tag ?? NULL_TAG;
@@ -379,21 +367,22 @@ class ServerService {
       return ServerModel.fromDao(serverDao);
     }
 
-    serverDao.tag = newTag;
-    await _cacheServerStorage.update(serverDao);
-
-    await _removeServersByNameAndTag(
-      serverDao.name,
-      newTag,
-      excludeServerId: serverDao.id,
+    final taggedServer = await _upsertServerIdentity(
+      ServerIdentity(
+        registry: serverDao.registry,
+        repo: serverDao.repo,
+        name: serverDao.name,
+        tag: newTag,
+      ),
+      serverDao.internalId,
     );
 
     logger.log(
       LogModule.server,
       "tag.updated",
-      detail: "serverId: ${serverDao.id}, tag: ${serverDao.tag}",
+      detail: "serverId: ${taggedServer.id}, tag: ${taggedServer.tag}",
     );
-    return ServerModel.fromDao(serverDao);
+    return taggedServer;
   }
 
   Future<void> setAlias(String serverId, String newName) async {
@@ -443,6 +432,135 @@ class ServerService {
         "dedupe.removed",
         detail: "serverId: ${serverDao.id}, tag: $tag",
       );
+    }
+  }
+
+  Future<ServerModel> _upsertServerIdentity(
+    ServerIdentity identity,
+    String internalId,
+  ) {
+    return _withIdentityLock(identity, () async {
+      await _cacheServerStorage.list();
+      final matching =
+          (await _cacheServerStorage.list())
+              .where((dao) => ServerModel.fromDao(dao).identity == identity)
+              .toList()
+            ..sort((a, b) => a.id.compareTo(b.id));
+
+      final ServerDao canonical;
+      String? replacedInternalId;
+      if (matching.isEmpty) {
+        final serverId = uniqueId();
+        canonical = ServerDao(
+          id: serverId,
+          alias: serverId,
+          registry: identity.registry,
+          repo: identity.repo,
+          name: identity.name,
+          tag: identity.tag,
+          internalId: internalId,
+        );
+        await _cacheServerStorage.add(canonical);
+      } else {
+        final existing = matching.first;
+        replacedInternalId = existing.internalId == internalId
+            ? null
+            : existing.internalId;
+        canonical = ServerDao(
+          id: existing.id,
+          alias: existing.alias,
+          registry: identity.registry,
+          repo: identity.repo,
+          name: identity.name,
+          tag: identity.tag,
+          internalId: internalId,
+        );
+        await _cacheServerStorage.update(canonical);
+      }
+
+      await _consolidateIdentity(identity, canonical.id);
+      if (replacedInternalId != null) {
+        await _removeInternalServerIfUnused(identity.name, replacedInternalId);
+      }
+      await _notifyServersChanged();
+      return ServerModel.fromDao(canonical);
+    });
+  }
+
+  Future<void> _consolidateIdentity(
+    ServerIdentity identity,
+    String canonicalServerId,
+  ) async {
+    final duplicates = (await _cacheServerStorage.list())
+        .where(
+          (dao) =>
+              dao.id != canonicalServerId &&
+              ServerModel.fromDao(dao).identity == identity,
+        )
+        .toList();
+
+    for (final duplicate in duplicates) {
+      final toolStorage = _toolStorage;
+      if (toolStorage != null) {
+        final tools = await toolStorage.list();
+        for (final tool in tools.where(
+          (tool) => tool.serverId == duplicate.id,
+        )) {
+          tool.serverId = canonicalServerId;
+          _applyIdentitySnapshot(tool, identity);
+          await toolStorage.update(tool);
+        }
+      }
+      await _cacheServerStorage.remove(duplicate.id);
+      await _removeInternalServerIfUnused(duplicate.name, duplicate.internalId);
+      logger.log(
+        LogModule.server,
+        "identityDedup.removed",
+        detail:
+            "serverId: ${duplicate.id}, canonicalServerId: $canonicalServerId, identity: $identity",
+      );
+    }
+  }
+
+  void _applyIdentitySnapshot(ToolDao tool, ServerIdentity identity) {
+    tool.serverRegistry = identity.registry;
+    tool.serverRepo = identity.repo;
+    tool.serverName = identity.name;
+    tool.serverTag = identity.tag;
+  }
+
+  Future<void> _removeInternalServerIfUnused(
+    String serverName,
+    String internalId,
+  ) async {
+    if (await _checkInternalIdReference(internalId)) return;
+    final internal = await _internalServerStorage.remove(internalId);
+    final path =
+        internal?.file ??
+        "$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}$serverName-$internalId.ots";
+    await DirectoryUtil.deleteFile(path);
+  }
+
+  Future<void> _notifyServersChanged() async {
+    final callback = _onServersChanged;
+    if (callback != null) await callback(await list());
+  }
+
+  Future<T> _withIdentityLock<T>(
+    ServerIdentity identity,
+    Future<T> Function() action,
+  ) async {
+    final previous = _identityTails[identity] ?? Future<void>.value();
+    final completer = Completer<void>();
+    _identityTails[identity] = completer.future;
+    try {
+      await previous.catchError((_) {});
+      return await action();
+    } finally {
+      completer.complete();
+      if (identical(_identityTails[identity], completer.future)) {
+        _identityTails.remove(identity);
+      }
     }
   }
 

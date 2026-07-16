@@ -5,14 +5,14 @@ import 'dart:io';
 Future<int> findAvailablePort(String host, int startPort) async {
   int candidate = startPort;
   while (true) {
-    if (await _isPortOpen(host, candidate)) {
+    if (await isPortAvailable(host, candidate)) {
       return candidate;
     }
     candidate++;
   }
 }
 
-Future<bool> _isPortOpen(String host, int port) async {
+Future<bool> isPortAvailable(String host, int port) async {
   ServerSocket? socket;
   try {
     socket = await ServerSocket.bind(host, port);

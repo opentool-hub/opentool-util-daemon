@@ -113,15 +113,19 @@ class ToolDaoAdapter extends TypeAdapter<ToolDao> {
       port: fields[4] as int,
       apiKey: fields[5] as String,
       status: fields[6] as String,
-      extraCmds: (fields[7] as List?)?.cast<String>(),
       serverId: fields[8] as String?,
+      extraCmds: (fields[7] as List?)?.cast<String>(),
+      serverRegistry: fields[9] as String?,
+      serverRepo: fields[10] as String?,
+      serverName: fields[11] as String?,
+      serverTag: fields[12] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, ToolDao obj) {
     writer
-      ..writeByte(9)
+      ..writeByte(13)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -139,7 +143,15 @@ class ToolDaoAdapter extends TypeAdapter<ToolDao> {
       ..writeByte(7)
       ..write(obj.extraCmds)
       ..writeByte(8)
-      ..write(obj.serverId);
+      ..write(obj.serverId)
+      ..writeByte(9)
+      ..write(obj.serverRegistry)
+      ..writeByte(10)
+      ..write(obj.serverRepo)
+      ..writeByte(11)
+      ..write(obj.serverName)
+      ..writeByte(12)
+      ..write(obj.serverTag);
   }
 
   @override

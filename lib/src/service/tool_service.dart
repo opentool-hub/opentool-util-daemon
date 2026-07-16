@@ -16,6 +16,16 @@ import 'model.dart';
 
 int preferredPortForNewTool() => TOOL_DEFAULT_PORT;
 
+typedef ToolProcessLauncher =
+    Future<int> Function(
+      String workdir,
+      String entrypoint,
+      List<String> commands,
+      void Function(String command, String output)? onStdout,
+      void Function(String command, String error)? onStderr,
+      bool printStd,
+    );
+
 class ToolService {
   late CacheToolStorage _cacheToolStorage;
   final Map<String, OpenToolClient> _clients = {};
@@ -23,19 +33,46 @@ class ToolService {
       StreamController<ToolLifecycleEventModel>.broadcast();
   late final OpenToolClient Function(ToolDao toolDao) _clientFactory;
   late final Future<int> Function(String host, int startPort) _portAllocator;
+  late final Future<bool> Function(String host, int port) _portAvailability;
+  late final ToolProcessLauncher _processLauncher;
+  final Future<ServerModel> Function(String serverId)? _serverGetter;
+  final Future<List<ServerModel>> Function()? _serverLister;
+  final Map<ServerIdentity, Future<ToolModel>> _runFlights = {};
+  final Map<String, Future<void>> _startFlights = {};
+  final Map<String, int> _processGenerations = {};
   static const Duration _readyCheckInterval = Duration(milliseconds: 500);
   static const Duration _readyCheckTimeout = Duration(seconds: 30);
+  static const Duration _stopCheckInterval = Duration(milliseconds: 100);
+  static const Duration _stopCheckTimeout = Duration(seconds: 2);
 
   Stream<ToolLifecycleEventModel> get events => _eventController.stream;
 
   ToolService(
     HiveToolStorage hive, {
+    CacheToolStorage? cacheToolStorage,
     OpenToolClient Function(ToolDao toolDao)? clientFactory,
     Future<int> Function(String host, int startPort)? portAllocator,
-  }) {
-    _cacheToolStorage = CacheToolStorage(hive);
+    Future<bool> Function(String host, int port)? portAvailability,
+    ToolProcessLauncher? processLauncher,
+    Future<ServerModel> Function(String serverId)? serverGetter,
+    Future<List<ServerModel>> Function()? serverLister,
+  }) : _serverGetter = serverGetter,
+       _serverLister = serverLister {
+    _cacheToolStorage = cacheToolStorage ?? CacheToolStorage(hive);
     _clientFactory = clientFactory ?? _buildClient;
     _portAllocator = portAllocator ?? findAvailablePort;
+    _portAvailability = portAvailability ?? isPortAvailable;
+    _processLauncher =
+        processLauncher ??
+        (workdir, entrypoint, commands, onStdout, onStderr, printStd) =>
+            CommandUtil.runStream(
+              workdir,
+              entrypoint,
+              commands,
+              onStdout: onStdout,
+              onStderr: onStderr,
+              printStd: printStd,
+            );
   }
 
   Future<void> refreshStatusesOnStartup({bool autoRestore = false}) async {
@@ -123,7 +160,67 @@ class ToolService {
     return ToolModel.fromDao(toolDao);
   }
 
-  /// Creates and runs a new tool process from the given server package.
+  Future<int> repairServerAssociations(List<ServerModel> servers) async {
+    final serversById = {for (final server in servers) server.id: server};
+    final serversByIdentity = <ServerIdentity, List<ServerModel>>{};
+    for (final server in servers) {
+      serversByIdentity.putIfAbsent(server.identity, () => []).add(server);
+    }
+
+    int repaired = 0;
+    for (final tool in await _cacheToolStorage.list()) {
+      final referencedServer = serversById[tool.serverId];
+      if (referencedServer != null) {
+        final snapshot = _snapshotIdentity(tool);
+        final identity =
+            snapshot ??
+            await _readWorkspaceIdentity(tool.id) ??
+            referencedServer.identity;
+        var changed = snapshot == null;
+        if (identity != referencedServer.identity) {
+          final matches = serversByIdentity[identity] ?? const <ServerModel>[];
+          if (matches.length == 1) {
+            tool.serverId = matches.single.id;
+            changed = true;
+          }
+        }
+        if (changed) {
+          _applyIdentitySnapshot(tool, identity);
+          await _cacheToolStorage.update(tool);
+          repaired++;
+        }
+        continue;
+      }
+
+      final identity =
+          _snapshotIdentity(tool) ?? await _readWorkspaceIdentity(tool.id);
+      if (identity == null) continue;
+      final matches = serversByIdentity[identity] ?? const <ServerModel>[];
+      if (matches.length != 1) {
+        logger.log(
+          LogModule.tool,
+          "repairServerAssociations.ambiguous",
+          detail:
+              "toolId: ${tool.id}, identity: $identity, matches: ${matches.length}",
+          level: Level.WARNING,
+        );
+        continue;
+      }
+
+      tool.serverId = matches.single.id;
+      _applyIdentitySnapshot(tool, identity);
+      await _cacheToolStorage.update(tool);
+      repaired++;
+      logger.log(
+        LogModule.tool,
+        "repairServerAssociations.repaired",
+        detail: "toolId: ${tool.id}, serverId: ${tool.serverId}",
+      );
+    }
+    return repaired;
+  }
+
+  /// Returns the single daemon-managed tool for a logical server identity.
   Future<ToolModel> runServer(
     ServerModel server,
     String hostType, {
@@ -131,219 +228,258 @@ class ToolService {
     void Function(String script, String output)? onStdout,
     void Function(String script, String error)? onStderr,
     bool printStd = true,
+  }) {
+    final identity = server.identity;
+    final existingFlight = _runFlights[identity];
+    if (existingFlight != null) return existingFlight;
+
+    late Future<ToolModel> flight;
+    flight =
+        _runServerLocked(
+          server,
+          hostType,
+          extraCmds: extraCmds,
+          onStdout: onStdout,
+          onStderr: onStderr,
+          printStd: printStd,
+        ).whenComplete(() {
+          if (identical(_runFlights[identity], flight)) {
+            _runFlights.remove(identity);
+          }
+        });
+    _runFlights[identity] = flight;
+    return flight;
+  }
+
+  Future<ToolModel> _runServerLocked(
+    ServerModel requestedServer,
+    String hostType, {
+    List<String>? extraCmds,
+    void Function(String script, String output)? onStdout,
+    void Function(String script, String error)? onStderr,
+    required bool printStd,
   }) async {
+    final server = await _refreshServer(requestedServer);
+    final identity = server.identity;
     logger.log(
       LogModule.tool,
       "runServer.input",
-      detail: "serverId: ${server.id}, hostType: $hostType",
+      detail:
+          "serverId: ${server.id}, identity: $identity, hostType: $hostType",
     );
 
-    /// 1. get the server internal file, .opentool/servers/{name}-{internalId}.ots, then unzip to temp folder
-    String name = server.name;
-    String internalId = server.internalId;
-    String otsFilePath =
-        "$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}$name-$internalId.ots";
-    String tempFolder = await ZipUtil.unzipToTemp(otsFilePath);
+    final servers = await _serverLister?.call();
+    if (servers != null) await repairServerAssociations(servers);
 
-    /// 2. copy temp folder to .opentool/tools/{toolId}
-    String toolId = uniqueId();
-    String toolFolder =
+    final matching =
+        (await _cacheToolStorage.list())
+            .where((tool) => _toolMatchesServer(tool, server))
+            .toList()
+          ..sort((a, b) => a.id.compareTo(b.id));
+
+    for (final tool in matching.where(
+      (tool) => tool.status == ToolStatusType.RUNNING,
+    )) {
+      if (await _isHealthy(tool)) {
+        logger.log(
+          LogModule.tool,
+          "runServer.reuseRunning",
+          detail: "toolId: ${tool.id}, identity: $identity",
+        );
+        return ToolModel.fromDao(tool);
+      }
+    }
+
+    if (matching.isNotEmpty) {
+      final tool = matching.first;
+      await startTool(
+        ToolModel.fromDao(tool),
+        onStdout: onStdout,
+        onStderr: onStderr,
+        printStd: printStd,
+      );
+      return get(tool.id);
+    }
+
+    final toolId = uniqueId();
+    final otsFilePath =
+        "$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}${server.name}-${server.internalId}.ots";
+    final tempFolder = await ZipUtil.unzipToTemp(otsFilePath);
+    final toolFolder =
         "$OPENTOOL_PATH${Platform.pathSeparator}$TOOL_FOLDER${Platform.pathSeparator}$toolId";
     await DirectoryUtil.copyDirectory(
       Directory(tempFolder),
       Directory(toolFolder),
     );
+    await DirectoryUtil.deleteDirectory(tempFolder);
 
-    /// 2. run tool
-    String opentoolFileJsonPath =
-        "$toolFolder${Platform.pathSeparator}$OPENTOOL_FILE_JSON_NAME";
-    Map<String, dynamic> opentoolFileJson = await JsonFileUtil.readFromFile(
-      opentoolFileJsonPath,
-    );
-    OpentoolfileConfig rawConfig = OpentoolfileConfig.fromJson(
-      opentoolFileJson,
-    );
-    OpentoolfileConfig config = OpentoolfileConfigUtil.resolve(rawConfig);
-    String workdir = _resolveWorkdir(toolFolder, config.run.workdir);
-    String entrypoint = ExecutableUtil.resolveEntrypoint(
-      workdir,
-      config.run.entrypoint,
-    );
-    List<String> cmds = List<String>.from(config.run.cmds);
-    if (extraCmds != null && extraCmds.isNotEmpty) {
-      cmds.addAll(extraCmds);
-    }
-
-    String tag = server.tag;
-    cmds.add("--$CLI_ARGUMENT_TAG $tag");
-
-    String host = hostType;
-    cmds.add("--$CLI_ARGUMENT_HOST $host");
-
-    final int preferredPort = preferredPortForNewTool();
-    final int port = await _portAllocator(host, preferredPort);
-    cmds.add("--$CLI_ARGUMENT_PORT $port");
-
-    String apiKey = uniqueId(shorter: false);
-    cmds.add("--$CLI_ARGUMENT_APIKEYS $apiKey");
-
-    /// 3. add to storage
-    ToolDao toolDao = ToolDao(
+    final toolDao = ToolDao(
       id: toolId,
       alias: toolId,
-      tag: tag,
-      host: host,
-      port: port,
-      apiKey: apiKey,
-      status: ToolStatusType.RUNNING,
+      tag: server.tag,
+      host: hostType,
+      port: preferredPortForNewTool(),
+      apiKey: uniqueId(shorter: false),
+      status: ToolStatusType.NOT_RUNNING,
       serverId: server.id,
       extraCmds: extraCmds == null || extraCmds.isEmpty
           ? null
           : List<String>.from(extraCmds),
     );
-
-    unawaited(
-      ExecutableUtil.ensureExecutable(entrypoint, workdir).then((_) {
-        return CommandUtil.runStream(
-          workdir,
-          entrypoint,
-          cmds,
-          onStdout: onStdout,
-          onStderr: onStderr,
-          printStd: printStd,
-        );
-      }).catchError((error, stackTrace) {
-        logger.log(
-          LogModule.tool,
-          "runServer.processExited",
-          detail: "toolId: $toolId, error: $error\n$stackTrace",
-          level: Level.WARNING,
-        );
-        toolDao.status = ToolStatusType.NOT_RUNNING;
-        _cacheToolStorage.update(toolDao);
-        _clients.remove(toolId);
-        _emitLifecycleEvent(
-          ToolLifecycleEventType.UNAVAILABLE,
-          ToolLifecycleEventReason.HEALTHCHECK_FAILED,
-          ToolModel.fromDao(toolDao),
-        );
-        return -1;
-      }),
-    );
-
+    _applyIdentitySnapshot(toolDao, identity);
     await _cacheToolStorage.add(toolDao);
-    _registerClient(toolDao);
-    await _waitUntilReady(toolDao);
-    _emitLifecycleEvent(
-      ToolLifecycleEventType.READY,
-      ToolLifecycleEventReason.CREATED,
+
+    await _startToolSingleFlight(
       ToolModel.fromDao(toolDao),
+      ToolLifecycleEventReason.CREATED,
+      onStdout: onStdout,
+      onStderr: onStderr,
+      printStd: printStd,
     );
+    final result = await get(toolId);
     logger.log(
       LogModule.tool,
       "runServer.result",
-      detail: "toolId: $toolId, port: $port",
+      detail: "toolId: $toolId, port: ${result.port}",
     );
-    return ToolModel.fromDao(toolDao);
+    return result;
   }
 
-  /// Restarts an existing tool process by reusing its workspace.
+  /// Starts one existing tool process at most once for concurrent callers.
   Future<void> startTool(
     ToolModel tool, {
     void Function(String script, String output)? onStdout,
     void Function(String script, String error)? onStderr,
     bool printStd = true,
-  }) async {
-    logger.log(LogModule.tool, "startTool.input", detail: "toolId: ${tool.id}");
+  }) => _startToolSingleFlight(
+    tool,
+    ToolLifecycleEventReason.STARTED,
+    onStdout: onStdout,
+    onStderr: onStderr,
+    printStd: printStd,
+  );
 
-    /// 1. run tool
-    String toolFolder =
-        "$OPENTOOL_PATH${Platform.pathSeparator}$TOOL_FOLDER${Platform.pathSeparator}${tool.id}";
-    String opentoolFileJsonPath =
-        "$toolFolder${Platform.pathSeparator}$OPENTOOL_FILE_JSON_NAME";
-    Map<String, dynamic> opentoolFileJson = await JsonFileUtil.readFromFile(
-      opentoolFileJsonPath,
-    );
-    OpentoolfileConfig rawConfig = OpentoolfileConfig.fromJson(
-      opentoolFileJson,
-    );
-    OpentoolfileConfig config = OpentoolfileConfigUtil.resolve(rawConfig);
-    String workdir = _resolveWorkdir(toolFolder, config.run.workdir);
-    String entrypoint = ExecutableUtil.resolveEntrypoint(
-      workdir,
-      config.run.entrypoint,
-    );
-    List<String> cmds = List<String>.from(config.run.cmds);
+  Future<void> _startToolSingleFlight(
+    ToolModel tool,
+    String readyReason, {
+    void Function(String script, String output)? onStdout,
+    void Function(String script, String error)? onStderr,
+    required bool printStd,
+  }) {
+    final existingFlight = _startFlights[tool.id];
+    if (existingFlight != null) return existingFlight;
 
-    String tag = tool.tag;
-    cmds.add("--$CLI_ARGUMENT_TAG $tag");
-
-    String host = tool.host;
-    cmds.add("--$CLI_ARGUMENT_HOST $host");
-
-    final int desiredPort = tool.port;
-    final int port = await _portAllocator(host, desiredPort);
-    cmds.add("--$CLI_ARGUMENT_PORT $port");
-
-    String apiKey = tool.apiKey;
-    cmds.add("--$CLI_ARGUMENT_APIKEYS $apiKey");
-
-    /// 2. update to storage
-    ToolDao toolDao = ToolDao(
-      id: tool.id,
-      alias: tool.alias,
-      tag: tag,
-      host: host,
-      port: port,
-      apiKey: apiKey,
-      status: ToolStatusType.RUNNING,
-      serverId: tool.serverId,
-      extraCmds: tool.extraCmds == null
-          ? null
-          : List<String>.from(tool.extraCmds!),
-    );
-
-    unawaited(
-      ExecutableUtil.ensureExecutable(entrypoint, workdir).then((_) {
-        return CommandUtil.runStream(
-          workdir,
-          entrypoint,
-          cmds,
+    late Future<void> flight;
+    flight =
+        _startToolLocked(
+          tool.id,
+          readyReason,
           onStdout: onStdout,
           onStderr: onStderr,
           printStd: printStd,
-        );
-      }).catchError((error, stackTrace) {
+        ).whenComplete(() {
+          if (identical(_startFlights[tool.id], flight)) {
+            _startFlights.remove(tool.id);
+          }
+        });
+    _startFlights[tool.id] = flight;
+    return flight;
+  }
+
+  Future<void> _startToolLocked(
+    String toolId,
+    String readyReason, {
+    void Function(String script, String output)? onStdout,
+    void Function(String script, String error)? onStderr,
+    required bool printStd,
+  }) async {
+    var toolDao = await _cacheToolStorage.get(toolId);
+    if (toolDao == null) throw ToolNotFoundException(toolId);
+    logger.log(LogModule.tool, "startTool.input", detail: "toolId: $toolId");
+
+    if (toolDao.status == ToolStatusType.RUNNING) {
+      if (await _isHealthy(toolDao)) {
         logger.log(
           LogModule.tool,
-          "startTool.processExited",
-          detail: "toolId: ${tool.id}, error: $error\n$stackTrace",
-          level: Level.WARNING,
+          "startTool.reuseRunning",
+          detail: "toolId: $toolId",
         );
-        toolDao.status = ToolStatusType.NOT_RUNNING;
-        _cacheToolStorage.update(toolDao);
-        _clients.remove(tool.id);
-        _emitLifecycleEvent(
-          ToolLifecycleEventType.UNAVAILABLE,
-          ToolLifecycleEventReason.HEALTHCHECK_FAILED,
-          ToolModel.fromDao(toolDao),
-        );
-        return -1;
-      }),
+        return;
+      }
+      await _prepareUnhealthyToolForRestart(toolDao);
+      toolDao = (await _cacheToolStorage.get(toolId))!;
+    }
+
+    final toolFolder =
+        "$OPENTOOL_PATH${Platform.pathSeparator}$TOOL_FOLDER${Platform.pathSeparator}$toolId";
+    final opentoolFileJsonPath =
+        "$toolFolder${Platform.pathSeparator}$OPENTOOL_FILE_JSON_NAME";
+    final opentoolFileJson = await JsonFileUtil.readFromFile(
+      opentoolFileJsonPath,
+    );
+    final rawConfig = OpentoolfileConfig.fromJson(opentoolFileJson);
+    final config = OpentoolfileConfigUtil.resolve(rawConfig);
+    final workdir = _resolveWorkdir(toolFolder, config.run.workdir);
+    final entrypoint = ExecutableUtil.resolveEntrypoint(
+      workdir,
+      config.run.entrypoint,
+    );
+    final commands = List<String>.from(config.run.cmds);
+    if (toolDao.extraCmds != null) commands.addAll(toolDao.extraCmds!);
+    commands.add("--$CLI_ARGUMENT_TAG ${toolDao.tag}");
+    commands.add("--$CLI_ARGUMENT_HOST ${toolDao.host}");
+    final port = await _portAllocator(toolDao.host, toolDao.port);
+    commands.add("--$CLI_ARGUMENT_PORT $port");
+    commands.add("--$CLI_ARGUMENT_APIKEYS ${toolDao.apiKey}");
+
+    toolDao.port = port;
+    toolDao.status = ToolStatusType.NOT_RUNNING;
+    await _cacheToolStorage.update(toolDao);
+    _clients.remove(toolId);
+    _registerClient(toolDao);
+
+    final generation = (_processGenerations[toolId] ?? 0) + 1;
+    _processGenerations[toolId] = generation;
+    await ExecutableUtil.ensureExecutable(entrypoint, workdir);
+    final processFuture = _processLauncher(
+      workdir,
+      entrypoint,
+      commands,
+      onStdout,
+      onStderr,
+      printStd,
+    );
+    unawaited(
+      processFuture.then<void>(
+        (_) => _handleProcessExit(toolId, generation),
+        onError: (Object error, StackTrace stackTrace) => _handleProcessExit(
+          toolId,
+          generation,
+          error: error,
+          stackTrace: stackTrace,
+        ),
+      ),
     );
 
+    try {
+      await _waitUntilReady(toolDao);
+    } catch (_) {
+      toolDao.status = ToolStatusType.NOT_RUNNING;
+      await _cacheToolStorage.update(toolDao);
+      _clients.remove(toolId);
+      rethrow;
+    }
+    toolDao.status = ToolStatusType.RUNNING;
     await _cacheToolStorage.update(toolDao);
-    _registerClient(toolDao);
-    await _waitUntilReady(toolDao);
     _emitLifecycleEvent(
       ToolLifecycleEventType.READY,
-      ToolLifecycleEventReason.STARTED,
+      readyReason,
       ToolModel.fromDao(toolDao),
     );
     logger.log(
       LogModule.tool,
       "startTool.result",
-      detail: "toolId: ${tool.id}, port: $port",
+      detail: "toolId: $toolId, port: $port",
     );
   }
 
@@ -514,6 +650,142 @@ class ToolService {
       );
       rethrow;
     }
+  }
+
+  Future<ServerModel> _refreshServer(ServerModel requested) async {
+    final getter = _serverGetter;
+    if (getter != null) {
+      try {
+        return await getter(requested.id);
+      } catch (_) {
+        // A same-version native sync may have repaired the catalog. Resolve by
+        // logical identity before giving up on the caller's stale id.
+      }
+    }
+    final lister = _serverLister;
+    if (lister != null) {
+      final matches = (await lister())
+          .where((server) => server.identity == requested.identity)
+          .toList();
+      if (matches.length == 1) return matches.single;
+    }
+    return requested;
+  }
+
+  bool _toolMatchesServer(ToolDao tool, ServerModel server) {
+    final snapshot = _snapshotIdentity(tool);
+    if (snapshot != null) return snapshot == server.identity;
+    return tool.serverId == server.id && tool.tag == server.tag;
+  }
+
+  ServerIdentity? _snapshotIdentity(ToolDao tool) {
+    final registry = tool.serverRegistry;
+    final repo = tool.serverRepo;
+    final name = tool.serverName;
+    final tag = tool.serverTag;
+    if (registry == null || repo == null || name == null || tag == null) {
+      return null;
+    }
+    return ServerIdentity(registry: registry, repo: repo, name: name, tag: tag);
+  }
+
+  void _applyIdentitySnapshot(ToolDao tool, ServerIdentity identity) {
+    tool.serverRegistry = identity.registry;
+    tool.serverRepo = identity.repo;
+    tool.serverName = identity.name;
+    tool.serverTag = identity.tag;
+  }
+
+  Future<ServerIdentity?> _readWorkspaceIdentity(String toolId) async {
+    final jsonPath = p.join(
+      OPENTOOL_PATH,
+      TOOL_FOLDER,
+      toolId,
+      OPENTOOL_FILE_JSON_NAME,
+    );
+    final file = File(jsonPath);
+    if (!await file.exists()) return null;
+    try {
+      final json = await JsonFileUtil.readFromFile(jsonPath);
+      final config = OpentoolfileConfig.fromJson(json);
+      return ServerIdentity(
+        registry: NULL_REGISTRY,
+        repo: NULL_REPO,
+        name: config.name,
+        tag: config.tag ?? NULL_TAG,
+      );
+    } catch (error, stackTrace) {
+      logger.log(
+        LogModule.tool,
+        "repairServerAssociations.workspaceError",
+        detail: "toolId: $toolId, error: $error\n$stackTrace",
+        level: Level.WARNING,
+      );
+      return null;
+    }
+  }
+
+  Future<bool> _isHealthy(ToolDao toolDao) async {
+    final client = _clients[toolDao.id] ?? _registerClient(toolDao);
+    try {
+      await client.version();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _prepareUnhealthyToolForRestart(ToolDao toolDao) async {
+    final client = _clients[toolDao.id] ?? _registerClient(toolDao);
+    try {
+      await client.stop();
+    } catch (_) {
+      // Readiness already failed. The port check below is the authoritative
+      // guard against starting a second process.
+    }
+    _clients.remove(toolDao.id);
+    if (!await _waitForPortAvailable(toolDao.host, toolDao.port)) {
+      throw ToolRestartConflictException(
+        toolDao.id,
+        'existing process did not release ${toolDao.host}:${toolDao.port}',
+      );
+    }
+    toolDao.status = ToolStatusType.NOT_RUNNING;
+    await _cacheToolStorage.update(toolDao);
+  }
+
+  Future<bool> _waitForPortAvailable(String host, int port) async {
+    final stopwatch = Stopwatch()..start();
+    while (true) {
+      if (await _portAvailability(host, port)) return true;
+      if (stopwatch.elapsed >= _stopCheckTimeout) return false;
+      await Future<void>.delayed(_stopCheckInterval);
+    }
+  }
+
+  Future<void> _handleProcessExit(
+    String toolId,
+    int generation, {
+    Object? error,
+    StackTrace? stackTrace,
+  }) async {
+    if (_processGenerations[toolId] != generation) return;
+    final toolDao = await _cacheToolStorage.get(toolId);
+    if (toolDao == null) return;
+    toolDao.status = ToolStatusType.NOT_RUNNING;
+    await _cacheToolStorage.update(toolDao);
+    _clients.remove(toolId);
+    _emitLifecycleEvent(
+      ToolLifecycleEventType.UNAVAILABLE,
+      ToolLifecycleEventReason.HEALTHCHECK_FAILED,
+      ToolModel.fromDao(toolDao),
+    );
+    logger.log(
+      LogModule.tool,
+      "tool.processExited",
+      detail: "toolId: $toolId, error: $error\n$stackTrace",
+      level: Level.WARNING,
+    );
   }
 
   OpenToolClient _registerClient(ToolDao toolDao) {

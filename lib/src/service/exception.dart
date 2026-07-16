@@ -26,6 +26,16 @@ class ToolNotFoundException implements Exception {
   }
 }
 
+class ToolRestartConflictException implements Exception {
+  final String toolId;
+  final String message;
+
+  ToolRestartConflictException(this.toolId, this.message);
+
+  @override
+  String toString() => 'ToolRestartConflictException: $toolId - $message';
+}
+
 class OpentoolfileMissingArgumentException implements Exception {
   late String message;
 

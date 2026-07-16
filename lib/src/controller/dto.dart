@@ -297,6 +297,12 @@ class ToolServerDto {
 
   factory ToolServerDto.fromModel(ServerModel server) =>
       ToolServerDto(repo: server.repo, name: server.name, tag: server.tag);
+
+  factory ToolServerDto.fromIdentity(ServerIdentity identity) => ToolServerDto(
+    repo: identity.repo,
+    name: identity.name,
+    tag: identity.tag,
+  );
 }
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
@@ -331,7 +337,11 @@ class ToolDto {
     port: tool.port,
     status: tool.status,
     serverId: tool.serverId,
-    server: server == null ? null : ToolServerDto.fromModel(server),
+    server: server != null
+        ? ToolServerDto.fromModel(server)
+        : tool.serverIdentity == null
+        ? null
+        : ToolServerDto.fromIdentity(tool.serverIdentity!),
   );
 }
 
@@ -371,7 +381,11 @@ class ToolWithApiKeyDto {
         apiKey: tool.apiKey,
         status: tool.status,
         serverId: tool.serverId,
-        server: server == null ? null : ToolServerDto.fromModel(server),
+        server: server != null
+            ? ToolServerDto.fromModel(server)
+            : tool.serverIdentity == null
+            ? null
+            : ToolServerDto.fromIdentity(tool.serverIdentity!),
       );
 }
 

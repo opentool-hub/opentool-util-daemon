@@ -3,8 +3,10 @@ import 'dart:io';
 import 'package:opentool_daemon/src/constants.dart';
 import 'package:opentool_daemon/src/service/exception.dart';
 import 'package:opentool_daemon/src/service/config.dart';
+import 'package:opentool_daemon/src/service/model.dart';
 import 'package:opentool_daemon/src/service/server_service.dart';
 import 'package:opentool_daemon/src/storage/dao.dart';
+import 'package:opentool_daemon/src/storage/cache_storage.dart';
 import 'package:opentool_daemon/src/utils/system_util.dart';
 import 'package:opentool_daemon/src/utils/zip_util.dart';
 import 'package:path/path.dart' as p;
@@ -81,27 +83,28 @@ void main() {
       expect(updated.alias, equals('web'));
     });
 
-    test('tag reuses existing tagged server when tag already exists', () async {
+    test('tag returns existing version without retagging the source', () async {
       await service.list(); // warm cache with every server entry
       final server = await service.tag('srv-1', 'stable');
 
-      expect(server.id, equals('srv-1'));
+      expect(server.id, equals('srv-dup'));
       expect(server.tag, equals('stable'));
 
       final servers = await service.list();
       expect(servers.where((s) => s.tag == 'stable'), hasLength(1));
-      expect(servers.any((s) => s.id == 'srv-dup'), isFalse);
+      expect(servers.firstWhere((s) => s.id == 'srv-1').tag, equals('latest'));
     });
 
-    test('tag creates a new tagged server when tag is missing', () async {
+    test('tag creates a new version without retagging the source', () async {
       final serversBefore = await service.list();
       final server = await service.tag('srv-1', 'beta');
       final serversAfter = await service.list();
 
-      expect(server.id, equals('srv-1'));
+      expect(server.id, isNot(equals('srv-1')));
       expect(server.tag, equals('beta'));
-      expect(serversAfter.length, equals(serversBefore.length));
+      expect(serversAfter.length, equals(serversBefore.length + 1));
       expect(serversAfter.where((s) => s.tag == 'beta'), hasLength(1));
+      expect(serversAfter.firstWhere((s) => s.id == 'srv-1').tag, 'latest');
     });
 
     test(
@@ -152,14 +155,14 @@ void main() {
       },
     );
 
-    test('import overrides existing server with same name/tag', () async {
+    test('import preserves native server id for the same identity', () async {
       hiveServerStorage = StubHiveServerStorage();
       internalStorage = StubHiveInternalServerStorage();
       final existingServer = ServerDao(
         id: 'srv-old',
         alias: 'old',
-        registry: 'hub.local',
-        repo: 'org/project',
+        registry: NULL_REGISTRY,
+        repo: NULL_REPO,
         name: 'import-demo',
         tag: NULL_TAG,
         internalId: 'int-old',
@@ -185,8 +188,9 @@ void main() {
           .toList();
 
       expect(matching, hasLength(1));
-      expect(matching.single.id, equals(imported.id));
-      expect(await hiveServerStorage.get(existingServer.id), isNull);
+      expect(imported.id, equals(existingServer.id));
+      expect(matching.single.id, equals(existingServer.id));
+      expect(await hiveServerStorage.get(existingServer.id), isNotNull);
       expect(await internalStorage.get(existingServer.internalId), isNull);
       expect(await File(oldFilePath).exists(), isFalse);
 
@@ -198,6 +202,68 @@ void main() {
 
       await bundle.dispose();
       await File(newFilePath).delete();
+    });
+
+    test('identity consolidation migrates ToolDao server references', () async {
+      hiveServerStorage = StubHiveServerStorage();
+      internalStorage = StubHiveInternalServerStorage();
+      final toolHive = StubHiveToolStorage();
+      final toolStorage = CacheToolStorage(toolHive);
+      hiveServerStorage.seed([
+        ServerDao(
+          id: 'srv-a',
+          alias: 'srv-a',
+          registry: NULL_REGISTRY,
+          repo: NULL_REPO,
+          name: 'identity-demo',
+          tag: '1.0.0',
+          internalId: 'int-a',
+        ),
+        ServerDao(
+          id: 'srv-b',
+          alias: 'srv-b',
+          registry: NULL_REGISTRY,
+          repo: NULL_REPO,
+          name: 'identity-demo',
+          tag: '1.0.0',
+          internalId: 'int-b',
+        ),
+      ]);
+      internalStorage.seed([
+        InternalServerDao(id: 'int-a', file: '/tmp/int-a.ots'),
+        InternalServerDao(id: 'int-b', file: '/tmp/int-b.ots'),
+      ]);
+      toolHive.seed([
+        ToolDao(
+          id: 'tool-b',
+          alias: 'tool-b',
+          tag: '1.0.0',
+          host: '127.0.0.1',
+          port: 9010,
+          apiKey: 'key',
+          status: ToolStatusType.RUNNING,
+          serverId: 'srv-b',
+        ),
+      ]);
+      final service = ServerService(
+        hiveServerStorage,
+        internalStorage,
+        toolStorage: toolStorage,
+      );
+      final bundle = await _createTestOtsBundle('identity-demo', tag: '1.0.0');
+
+      final imported = await service.import(bundle.zipPath);
+
+      expect(imported.id, 'srv-a');
+      expect((await toolHive.get('tool-b'))!.serverId, 'srv-a');
+      expect((await toolHive.get('tool-b'))!.serverName, 'identity-demo');
+      expect(await hiveServerStorage.get('srv-b'), isNull);
+
+      final importedFile = File(
+        _serverOtsFilePath(imported.name, imported.internalId),
+      );
+      await bundle.dispose();
+      if (await importedFile.exists()) await importedFile.delete();
     });
 
     test('import picks tag from Opentoolfile.json when present', () async {

@@ -13,6 +13,7 @@ import 'controller/manage_controller.dart';
 import 'controller/tool_controller.dart';
 import 'router.dart';
 import 'service/tool_service.dart';
+import 'storage/cache_storage.dart';
 
 class DaemonServer {
   late HttpServer server;
@@ -33,15 +34,25 @@ class DaemonServer {
         HiveInternalServerStorage();
     await hiveInternalServerStorage.init();
 
-    ManageService manageService = ManageService(version);
-    ServerService serverService = ServerService(
+    final cacheServerStorage = CacheServerStorage(hiveServerStorage);
+    final cacheToolStorage = CacheToolStorage(hiveToolStorage);
+    late ServerService serverService;
+    final ToolService toolService = ToolService(
+      hiveToolStorage,
+      cacheToolStorage: cacheToolStorage,
+      serverGetter: (serverId) => serverService.get(serverId),
+      serverLister: () => serverService.list(),
+    );
+    serverService = ServerService(
       hiveServerStorage,
       hiveInternalServerStorage,
+      cacheServerStorage: cacheServerStorage,
+      toolStorage: cacheToolStorage,
+      onServersChanged: toolService.repairServerAssociations,
     );
-    ToolService toolService = ToolService(hiveToolStorage);
-    await toolService.refreshStatusesOnStartup(
-      autoRestore: config.autoRestore,
-    );
+    await toolService.repairServerAssociations(await serverService.list());
+    ManageService manageService = ManageService(version);
+    await toolService.refreshStatusesOnStartup(autoRestore: config.autoRestore);
 
     ManageController manageController = ManageController(manageService);
     ServerController serverController = ServerController(

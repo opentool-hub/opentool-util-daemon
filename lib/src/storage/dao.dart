@@ -76,6 +76,18 @@ class ToolDao extends HiveObject {
   @HiveField(8)
   String? serverId;
 
+  @HiveField(9)
+  String? serverRegistry;
+
+  @HiveField(10)
+  String? serverRepo;
+
+  @HiveField(11)
+  String? serverName;
+
+  @HiveField(12)
+  String? serverTag;
+
   ToolDao({
     required this.id,
     required this.alias,
@@ -86,6 +98,10 @@ class ToolDao extends HiveObject {
     required this.status,
     this.serverId,
     this.extraCmds,
+    this.serverRegistry,
+    this.serverRepo,
+    this.serverName,
+    this.serverTag,
   });
 }
 
