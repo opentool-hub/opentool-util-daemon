@@ -38,10 +38,12 @@ class ToolService {
   final Future<ServerModel> Function(String serverId)? _serverGetter;
   final Future<List<ServerModel>> Function()? _serverLister;
   final Map<ServerIdentity, Future<ToolModel>> _runFlights = {};
-  final Map<String, Future<void>> _startFlights = {};
-  final Map<String, int> _processGenerations = {};
-  static const Duration _readyCheckInterval = Duration(milliseconds: 500);
-  static const Duration _readyCheckTimeout = Duration(seconds: 30);
+  final Map<String, _StartFlight> _startFlights = {};
+  final Map<String, _AsyncMutex> _lifecycleLocks = {};
+  final Map<String, int> _lifecycleGenerations = {};
+  final Map<String, int> _lifecycleRequestEpochs = {};
+  final Duration _readyCheckInterval;
+  final Duration _readyCheckTimeout;
   static const Duration _stopCheckInterval = Duration(milliseconds: 100);
   static const Duration _stopCheckTimeout = Duration(seconds: 2);
 
@@ -56,8 +58,12 @@ class ToolService {
     ToolProcessLauncher? processLauncher,
     Future<ServerModel> Function(String serverId)? serverGetter,
     Future<List<ServerModel>> Function()? serverLister,
+    Duration readyCheckInterval = const Duration(milliseconds: 500),
+    Duration readyCheckTimeout = const Duration(seconds: 30),
   }) : _serverGetter = serverGetter,
-       _serverLister = serverLister {
+       _serverLister = serverLister,
+       _readyCheckInterval = readyCheckInterval,
+       _readyCheckTimeout = readyCheckTimeout {
     _cacheToolStorage = cacheToolStorage ?? CacheToolStorage(hive);
     _clientFactory = clientFactory ?? _buildClient;
     _portAllocator = portAllocator ?? findAvailablePort;
@@ -85,43 +91,67 @@ class ToolService {
     int restored = 0;
     int markedNotRunning = 0;
     for (final toolDao in toolDaos) {
-      if (toolDao.status != ToolStatusType.RUNNING) continue;
-      try {
-        await _checkThenRun(toolDao.id, (client) async {
-          await client.version();
-        });
-      } catch (error, stackTrace) {
+      final persistedStatus = toolDao.status;
+      if (persistedStatus == ToolStatusType.STOPPING) {
+        final client = _clients[toolDao.id] ?? _registerClient(toolDao);
+        try {
+          await client.stop();
+        } catch (_) {
+          // A persisted stopping state is completed as notRunning on restart.
+        }
+        toolDao.status = ToolStatusType.NOT_RUNNING;
+        await _cacheToolStorage.update(toolDao);
         _clients.remove(toolDao.id);
-        if (autoRestore) {
-          try {
-            logger.log(
-              LogModule.tool,
-              "refreshStatusesOnStartup.restoring",
-              detail: "toolId: ${toolDao.id}",
-            );
-            await startTool(ToolModel.fromDao(toolDao), printStd: false);
-            restored++;
-            logger.log(
-              LogModule.tool,
-              "refreshStatusesOnStartup.restored",
-              detail: "toolId: ${toolDao.id}",
-            );
-          } catch (restoreError, restoreStackTrace) {
-            markedNotRunning++;
-            logger.log(
-              LogModule.tool,
-              "refreshStatusesOnStartup.restoreFailed",
-              detail:
-                  "toolId: ${toolDao.id}, error: $restoreError\n$restoreStackTrace",
-              level: Level.WARNING,
-            );
-          }
-        } else {
+        markedNotRunning++;
+        continue;
+      }
+
+      if (await _isHealthy(toolDao)) {
+        if (toolDao.status != ToolStatusType.RUNNING) {
+          toolDao.status = ToolStatusType.RUNNING;
+          await _cacheToolStorage.update(toolDao);
+        }
+        continue;
+      }
+
+      _clients.remove(toolDao.id);
+      final shouldRestore =
+          autoRestore &&
+          (persistedStatus == ToolStatusType.RUNNING ||
+              persistedStatus == ToolStatusType.STARTING);
+      if (shouldRestore) {
+        try {
+          logger.log(
+            LogModule.tool,
+            "refreshStatusesOnStartup.restoring",
+            detail: "toolId: ${toolDao.id}",
+          );
+          await startTool(ToolModel.fromDao(toolDao), printStd: false);
+          restored++;
+          logger.log(
+            LogModule.tool,
+            "refreshStatusesOnStartup.restored",
+            detail: "toolId: ${toolDao.id}",
+          );
+        } catch (restoreError, restoreStackTrace) {
+          markedNotRunning++;
+          logger.log(
+            LogModule.tool,
+            "refreshStatusesOnStartup.restoreFailed",
+            detail:
+                "toolId: ${toolDao.id}, error: $restoreError\n$restoreStackTrace",
+            level: Level.WARNING,
+          );
+        }
+      } else {
+        if (toolDao.status != ToolStatusType.NOT_RUNNING) {
+          toolDao.status = ToolStatusType.NOT_RUNNING;
+          await _cacheToolStorage.update(toolDao);
           markedNotRunning++;
           logger.log(
             LogModule.tool,
             "refreshStatusesOnStartup.markNotRunning",
-            detail: "toolId: ${toolDao.id}, error: $error\n$stackTrace",
+            detail: "toolId: ${toolDao.id}",
             level: Level.WARNING,
           );
         }
@@ -366,23 +396,29 @@ class ToolService {
     void Function(String script, String error)? onStderr,
     required bool printStd,
   }) {
+    final requestEpoch = _lifecycleRequestEpochs[tool.id] ?? 0;
     final existingFlight = _startFlights[tool.id];
-    if (existingFlight != null) return existingFlight;
+    if (existingFlight != null && existingFlight.epoch == requestEpoch) {
+      return existingFlight.future;
+    }
 
     late Future<void> flight;
     flight =
-        _startToolLocked(
+        _withLifecycleLock(
           tool.id,
-          readyReason,
-          onStdout: onStdout,
-          onStderr: onStderr,
-          printStd: printStd,
+          () => _startToolLocked(
+            tool.id,
+            readyReason,
+            onStdout: onStdout,
+            onStderr: onStderr,
+            printStd: printStd,
+          ),
         ).whenComplete(() {
-          if (identical(_startFlights[tool.id], flight)) {
+          if (identical(_startFlights[tool.id]?.future, flight)) {
             _startFlights.remove(tool.id);
           }
         });
-    _startFlights[tool.id] = flight;
+    _startFlights[tool.id] = _StartFlight(requestEpoch, flight);
     return flight;
   }
 
@@ -397,90 +433,131 @@ class ToolService {
     if (toolDao == null) throw ToolNotFoundException(toolId);
     logger.log(LogModule.tool, "startTool.input", detail: "toolId: $toolId");
 
-    if (toolDao.status == ToolStatusType.RUNNING) {
-      if (await _isHealthy(toolDao)) {
-        logger.log(
-          LogModule.tool,
-          "startTool.reuseRunning",
-          detail: "toolId: $toolId",
+    if (await _isHealthy(toolDao)) {
+      if (toolDao.status != ToolStatusType.RUNNING) {
+        toolDao.status = ToolStatusType.RUNNING;
+        await _cacheToolStorage.update(toolDao);
+        _emitLifecycleEvent(
+          ToolLifecycleEventType.READY,
+          readyReason,
+          ToolModel.fromDao(toolDao),
         );
-        return;
       }
-      await _prepareUnhealthyToolForRestart(toolDao);
-      toolDao = (await _cacheToolStorage.get(toolId))!;
+      logger.log(
+        LogModule.tool,
+        "startTool.reuseRunning",
+        detail: "toolId: $toolId",
+      );
+      return;
     }
 
-    final toolFolder =
-        "$OPENTOOL_PATH${Platform.pathSeparator}$TOOL_FOLDER${Platform.pathSeparator}$toolId";
-    final opentoolFileJsonPath =
-        "$toolFolder${Platform.pathSeparator}$OPENTOOL_FILE_JSON_NAME";
-    final opentoolFileJson = await JsonFileUtil.readFromFile(
-      opentoolFileJsonPath,
-    );
-    final rawConfig = OpentoolfileConfig.fromJson(opentoolFileJson);
-    final config = OpentoolfileConfigUtil.resolve(rawConfig);
-    final workdir = _resolveWorkdir(toolFolder, config.run.workdir);
-    final entrypoint = ExecutableUtil.resolveEntrypoint(
-      workdir,
-      config.run.entrypoint,
-    );
-    final commands = List<String>.from(config.run.cmds);
-    if (toolDao.extraCmds != null) commands.addAll(toolDao.extraCmds!);
-    commands.add("--$CLI_ARGUMENT_TAG ${toolDao.tag}");
-    commands.add("--$CLI_ARGUMENT_HOST ${toolDao.host}");
-    final port = await _portAllocator(toolDao.host, toolDao.port);
-    commands.add("--$CLI_ARGUMENT_PORT $port");
-    commands.add("--$CLI_ARGUMENT_APIKEYS ${toolDao.apiKey}");
-
-    toolDao.port = port;
-    toolDao.status = ToolStatusType.NOT_RUNNING;
-    await _cacheToolStorage.update(toolDao);
-    _clients.remove(toolId);
-    _registerClient(toolDao);
-
-    final generation = (_processGenerations[toolId] ?? 0) + 1;
-    _processGenerations[toolId] = generation;
-    await ExecutableUtil.ensureExecutable(entrypoint, workdir);
-    final processFuture = _processLauncher(
-      workdir,
-      entrypoint,
-      commands,
-      onStdout,
-      onStderr,
-      printStd,
-    );
-    unawaited(
-      processFuture.then<void>(
-        (_) => _handleProcessExit(toolId, generation),
-        onError: (Object error, StackTrace stackTrace) => _handleProcessExit(
-          toolId,
-          generation,
-          error: error,
-          stackTrace: stackTrace,
-        ),
-      ),
-    );
-
+    final generation = _nextLifecycleGeneration(toolId);
     try {
-      await _waitUntilReady(toolDao);
-    } catch (_) {
-      toolDao.status = ToolStatusType.NOT_RUNNING;
+      if (toolDao.status == ToolStatusType.RUNNING) {
+        await _prepareUnhealthyToolForRestart(toolDao);
+        toolDao = (await _cacheToolStorage.get(toolId))!;
+      }
+
+      toolDao.status = ToolStatusType.STARTING;
+      await _cacheToolStorage.update(toolDao);
+      _emitLifecycleEvent(
+        ToolLifecycleEventType.STARTING,
+        readyReason,
+        ToolModel.fromDao(toolDao),
+      );
+
+      final toolFolder =
+          "$OPENTOOL_PATH${Platform.pathSeparator}$TOOL_FOLDER${Platform.pathSeparator}$toolId";
+      final opentoolFileJsonPath =
+          "$toolFolder${Platform.pathSeparator}$OPENTOOL_FILE_JSON_NAME";
+      final opentoolFileJson = await JsonFileUtil.readFromFile(
+        opentoolFileJsonPath,
+      );
+      final rawConfig = OpentoolfileConfig.fromJson(opentoolFileJson);
+      final config = OpentoolfileConfigUtil.resolve(rawConfig);
+      final workdir = _resolveWorkdir(toolFolder, config.run.workdir);
+      final entrypoint = ExecutableUtil.resolveEntrypoint(
+        workdir,
+        config.run.entrypoint,
+      );
+      final commands = List<String>.from(config.run.cmds);
+      if (toolDao.extraCmds != null) commands.addAll(toolDao.extraCmds!);
+      commands.add("--$CLI_ARGUMENT_TAG ${toolDao.tag}");
+      commands.add("--$CLI_ARGUMENT_HOST ${toolDao.host}");
+      final port = await _portAllocator(toolDao.host, toolDao.port);
+      commands.add("--$CLI_ARGUMENT_PORT $port");
+      commands.add("--$CLI_ARGUMENT_APIKEYS ${toolDao.apiKey}");
+
+      _ensureCurrentGeneration(toolId, generation);
+      toolDao.port = port;
+      toolDao.status = ToolStatusType.STARTING;
       await _cacheToolStorage.update(toolDao);
       _clients.remove(toolId);
+      _registerClient(toolDao);
+
+      await ExecutableUtil.ensureExecutable(entrypoint, workdir);
+      final processFuture = _processLauncher(
+        workdir,
+        entrypoint,
+        commands,
+        onStdout,
+        onStderr,
+        printStd,
+      );
+      unawaited(
+        processFuture.then<void>(
+          (_) => _handleProcessExit(toolId, generation),
+          onError: (Object error, StackTrace stackTrace) => _handleProcessExit(
+            toolId,
+            generation,
+            error: error,
+            stackTrace: stackTrace,
+          ),
+        ),
+      );
+
+      await _waitUntilReady(toolId, generation);
+      _ensureCurrentGeneration(toolId, generation);
+      final current = await _cacheToolStorage.get(toolId);
+      if (current == null) throw ToolNotFoundException(toolId);
+      _ensureCurrentGeneration(toolId, generation);
+      current.status = ToolStatusType.RUNNING;
+      await _cacheToolStorage.update(current);
+      _ensureCurrentGeneration(toolId, generation);
+      _clients[toolId] ??= _clientFactory(current);
+      _emitLifecycleEvent(
+        ToolLifecycleEventType.READY,
+        readyReason,
+        ToolModel.fromDao(current),
+      );
+      logger.log(
+        LogModule.tool,
+        "startTool.result",
+        detail: "toolId: $toolId, port: $port",
+      );
+    } catch (error, stackTrace) {
+      if (_isCurrentGeneration(toolId, generation)) {
+        final current = await _cacheToolStorage.get(toolId);
+        if (current != null) {
+          current.status = ToolStatusType.NOT_RUNNING;
+          await _cacheToolStorage.update(current);
+          _clients.remove(toolId);
+          _emitLifecycleEvent(
+            ToolLifecycleEventType.UNAVAILABLE,
+            ToolLifecycleEventReason.HEALTHCHECK_FAILED,
+            ToolModel.fromDao(current),
+          );
+        }
+        _invalidateGeneration(toolId, generation);
+      }
+      logger.log(
+        LogModule.tool,
+        "startTool.error",
+        detail: "toolId: $toolId, error: $error\n$stackTrace",
+        level: Level.WARNING,
+      );
       rethrow;
     }
-    toolDao.status = ToolStatusType.RUNNING;
-    await _cacheToolStorage.update(toolDao);
-    _emitLifecycleEvent(
-      ToolLifecycleEventType.READY,
-      readyReason,
-      ToolModel.fromDao(toolDao),
-    );
-    logger.log(
-      LogModule.tool,
-      "startTool.result",
-      detail: "toolId: $toolId, port: $port",
-    );
   }
 
   /// Verifies the tool process is alive by calling its /version endpoint.
@@ -495,28 +572,54 @@ class ToolService {
     });
   }
 
-  Future<void> stop(String toolId) async {
+  Future<void> stop(String toolId) {
+    _advanceLifecycleRequestEpoch(toolId);
+    return _withLifecycleLock(toolId, () => _stopLocked(toolId));
+  }
+
+  Future<void> _stopLocked(String toolId) async {
     logger.log(LogModule.tool, "stop.input", detail: "toolId: $toolId");
     final toolDao = await _cacheToolStorage.get(toolId);
     if (toolDao == null) throw ToolNotFoundException(toolId);
+    final generation = _nextLifecycleGeneration(toolId);
+    toolDao.status = ToolStatusType.STOPPING;
+    await _cacheToolStorage.update(toolDao);
     _emitLifecycleEvent(
       ToolLifecycleEventType.DRAINING,
       ToolLifecycleEventReason.STOP_REQUESTED,
       ToolModel.fromDao(toolDao),
     );
-    await _checkThenRun(toolId, (client) async {
+    final client = _clients[toolId] ?? _registerClient(toolDao);
+    try {
       await client.stop();
-    });
-    toolDao.status = ToolStatusType.NOT_RUNNING;
-    await _cacheToolStorage.update(toolDao);
+    } on OpenToolServerNoAccessException {
+      // An unreachable process is already stopped from the daemon's view.
+    } on SocketException {
+      // An unreachable process is already stopped from the daemon's view.
+    }
+    _ensureCurrentGeneration(toolId, generation);
+    final current = await _cacheToolStorage.get(toolId);
+    if (current == null) throw ToolNotFoundException(toolId);
+    _ensureCurrentGeneration(toolId, generation);
+    current.status = ToolStatusType.NOT_RUNNING;
+    await _cacheToolStorage.update(current);
+    _ensureCurrentGeneration(toolId, generation);
     _clients.remove(toolId);
     logger.log(LogModule.tool, "stop.result", detail: "toolId: $toolId");
   }
 
-  Future<void> delete(String toolId) async {
+  Future<void> delete(String toolId) {
+    _advanceLifecycleRequestEpoch(toolId);
+    return _withLifecycleLock(toolId, () => _deleteLocked(toolId));
+  }
+
+  Future<void> _deleteLocked(String toolId) async {
     logger.log(LogModule.tool, "delete.input", detail: "toolId: $toolId");
     final existingToolDao = await _cacheToolStorage.get(toolId);
+    final generation = _nextLifecycleGeneration(toolId);
     if (existingToolDao != null) {
+      existingToolDao.status = ToolStatusType.STOPPING;
+      await _cacheToolStorage.update(existingToolDao);
       _emitLifecycleEvent(
         ToolLifecycleEventType.DRAINING,
         ToolLifecycleEventReason.DELETE_REQUESTED,
@@ -537,9 +640,11 @@ class ToolService {
       }
     }
 
+    _ensureCurrentGeneration(toolId, generation);
     ToolDao? toolDao = existingToolDao;
     if (toolDao != null) {
       await _cacheToolStorage.remove(toolId);
+      _ensureCurrentGeneration(toolId, generation);
       _emitLifecycleEvent(
         ToolLifecycleEventType.REMOVED,
         ToolLifecycleEventReason.DELETED,
@@ -631,18 +736,6 @@ class ToolService {
     try {
       return await onRun(client);
     } catch (error, stackTrace) {
-      final shouldMarkNotRunning =
-          error is OpenToolServerNoAccessException || error is SocketException;
-      if (shouldMarkNotRunning) {
-        toolDao.status = ToolStatusType.NOT_RUNNING;
-        await _cacheToolStorage.update(toolDao);
-        _clients.remove(toolId);
-        _emitLifecycleEvent(
-          ToolLifecycleEventType.UNAVAILABLE,
-          ToolLifecycleEventReason.HEALTHCHECK_FAILED,
-          ToolModel.fromDao(toolDao),
-        );
-      }
       logger.log(
         LogModule.tool,
         "check.error",
@@ -768,12 +861,13 @@ class ToolService {
     int generation, {
     Object? error,
     StackTrace? stackTrace,
-  }) async {
-    if (_processGenerations[toolId] != generation) return;
+  }) => _withLifecycleLock(toolId, () async {
+    if (!_isCurrentGeneration(toolId, generation)) return;
     final toolDao = await _cacheToolStorage.get(toolId);
-    if (toolDao == null) return;
+    if (toolDao == null || !_isCurrentGeneration(toolId, generation)) return;
     toolDao.status = ToolStatusType.NOT_RUNNING;
     await _cacheToolStorage.update(toolDao);
+    if (!_isCurrentGeneration(toolId, generation)) return;
     _clients.remove(toolId);
     _emitLifecycleEvent(
       ToolLifecycleEventType.UNAVAILABLE,
@@ -786,7 +880,7 @@ class ToolService {
       detail: "toolId: $toolId, error: $error\n$stackTrace",
       level: Level.WARNING,
     );
-  }
+  });
 
   OpenToolClient _registerClient(ToolDao toolDao) {
     final client = _clientFactory(toolDao);
@@ -794,17 +888,52 @@ class ToolService {
     return client;
   }
 
-  Future<void> _waitUntilReady(ToolDao toolDao) async {
+  Future<void> _waitUntilReady(String toolId, int generation) async {
     final stopwatch = Stopwatch()..start();
     while (true) {
-      final client = _clients[toolDao.id] ?? _registerClient(toolDao);
+      _ensureCurrentGeneration(toolId, generation);
+      final toolDao = await _cacheToolStorage.get(toolId);
+      if (toolDao == null) throw ToolNotFoundException(toolId);
+      _ensureCurrentGeneration(toolId, generation);
+      final client = _clients[toolId] ?? _registerClient(toolDao);
       try {
         await client.version();
+        _ensureCurrentGeneration(toolId, generation);
         return;
       } catch (_) {
+        _ensureCurrentGeneration(toolId, generation);
         if (stopwatch.elapsed >= _readyCheckTimeout) rethrow;
         await Future<void>.delayed(_readyCheckInterval);
       }
+    }
+  }
+
+  Future<T> _withLifecycleLock<T>(String toolId, Future<T> Function() action) =>
+      _lifecycleLocks.putIfAbsent(toolId, _AsyncMutex.new).run(action);
+
+  int _nextLifecycleGeneration(String toolId) {
+    final generation = (_lifecycleGenerations[toolId] ?? 0) + 1;
+    _lifecycleGenerations[toolId] = generation;
+    return generation;
+  }
+
+  void _advanceLifecycleRequestEpoch(String toolId) {
+    _lifecycleRequestEpochs[toolId] =
+        (_lifecycleRequestEpochs[toolId] ?? 0) + 1;
+  }
+
+  bool _isCurrentGeneration(String toolId, int generation) =>
+      _lifecycleGenerations[toolId] == generation;
+
+  void _ensureCurrentGeneration(String toolId, int generation) {
+    if (!_isCurrentGeneration(toolId, generation)) {
+      throw _LifecycleSupersededException(toolId, generation);
+    }
+  }
+
+  void _invalidateGeneration(String toolId, int generation) {
+    if (_isCurrentGeneration(toolId, generation)) {
+      _lifecycleGenerations[toolId] = generation + 1;
     }
   }
 
@@ -842,4 +971,35 @@ class ToolService {
     }
     return baseFolder;
   }
+}
+
+class _AsyncMutex {
+  Future<void> _tail = Future<void>.value();
+
+  Future<T> run<T>(Future<T> Function() action) {
+    final previous = _tail;
+    final release = Completer<void>();
+    _tail = release.future;
+    return previous.then((_) => action()).whenComplete(() {
+      if (!release.isCompleted) release.complete();
+    });
+  }
+}
+
+class _StartFlight {
+  final int epoch;
+  final Future<void> future;
+
+  const _StartFlight(this.epoch, this.future);
+}
+
+class _LifecycleSupersededException implements Exception {
+  final String toolId;
+  final int generation;
+
+  const _LifecycleSupersededException(this.toolId, this.generation);
+
+  @override
+  String toString() =>
+      'Tool lifecycle operation superseded: $toolId generation $generation';
 }

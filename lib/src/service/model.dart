@@ -37,10 +37,13 @@ class ServerIdentity {
 
 class ToolStatusType {
   static const String RUNNING = 'running';
+  static const String STARTING = 'starting';
+  static const String STOPPING = 'stopping';
   static const String NOT_RUNNING = 'notRunning';
 }
 
 class ToolLifecycleEventType {
+  static const String STARTING = 'tool.starting';
   static const String READY = 'tool.ready';
   static const String DRAINING = 'tool.draining';
   static const String UNAVAILABLE = 'tool.unavailable';
