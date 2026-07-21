@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:opentool_daemon/src/controller/server_controller.dart';
 import 'package:opentool_daemon/src/middleware.dart';
@@ -52,7 +53,6 @@ class DaemonServer {
     );
     await toolService.repairServerAssociations(await serverService.list());
     ManageService manageService = ManageService(version);
-    await toolService.refreshStatusesOnStartup(autoRestore: config.autoRestore);
 
     ManageController manageController = ManageController(manageService);
     ServerController serverController = ServerController(
@@ -84,6 +84,14 @@ class DaemonServer {
     server = await serve(handler, host, port);
     print(
       "Start OpenTool Daemon: http://${server.address.host}:${server.port}$prefix",
+    );
+
+    unawaited(
+      toolService
+          .refreshStatusesOnStartup(autoRestore: config.autoRestore)
+          .catchError((e, st) {
+        print("refreshStatusesOnStartup error: $e\n$st");
+      }),
     );
   }
 
