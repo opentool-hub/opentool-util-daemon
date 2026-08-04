@@ -1,20 +1,22 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:logging/logging.dart';
-import 'package:opentool_daemon/src/service/manage_service.dart';
 import 'package:opentool_dart/opentool_client.dart';
 import 'package:opentool_daemon/opentool_daemon_utils.dart';
 import 'package:shelf/shelf.dart';
 import '../service/model.dart';
+import '../service/exception.dart';
+import '../service/hub_install_service.dart';
 import '../service/server_service.dart';
 import '../constants.dart';
 import 'dto.dart';
 
 class ServerController {
   ServerService serverService;
-  ManageService manageService;
+  HubInstallService? hubInstallService;
 
-  ServerController(this.serverService, this.manageService);
+  ServerController(this.serverService, {this.hubInstallService});
 
   /// GET /servers/list
   Future<Response> listServers(Request request) async {
@@ -135,117 +137,103 @@ class ServerController {
     return Response.ok(jsonEncode(serverDto.toJson()), headers: JSON_HEADERS);
   }
 
-  /// POST /servers/pull?name=<target_name>&tag=<target_tag>
+  /// POST /servers/pull
   Future<Response> pullServer(Request request) async {
-    Map<String, String> query = request.url.queryParameters;
+    final service = hubInstallService;
+    if (service == null) {
+      return Response.internalServerError(
+        body: jsonEncode({
+          'error': {
+            'code': 'INSTALL_FAILED',
+            'message': 'Hub installation service is unavailable',
+          },
+        }),
+        headers: JSON_HEADERS,
+      );
+    }
+    final String payload;
+    final HubInstallRequest installRequest;
+    try {
+      payload = await request.readAsString();
+      final decoded = jsonDecode(payload);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Request body must be a JSON object');
+      }
+      final dto = PullInfoDto.fromJson(decoded);
+      installRequest = HubInstallRequest.validate(
+        registry: dto.registry,
+        namespace: dto.namespace,
+        name: dto.name,
+        version: dto.version,
+        client: dto.client,
+        allowInsecureHub:
+            Platform.environment['OPENTOOL_ALLOW_INSECURE_HUB'] == 'true',
+      );
+    } catch (error) {
+      return Response.badRequest(
+        body: jsonEncode({
+          'error': {
+            'code': 'INVALID_PULL_REQUEST',
+            'message': error.toString(),
+          },
+        }),
+        headers: JSON_HEADERS,
+      );
+    }
     logger.log(
       LogModule.http,
       "pullServer.input",
-      detail: "queryParams: ${jsonEncode(query)}",
+      detail: "ref: ${installRequest.ref}",
       level: Level.FINE,
     );
-    PullInfoDto pullInfoDto = PullInfoDto.fromJson(query);
-    String name = pullInfoDto.name;
-    String tag = pullInfoDto.tag ?? NULL_TAG;
-    StreamController<List<int>> streamController =
-        StreamController<List<int>>();
-    String otsFileTempPath = await manageService.pullToTemp(
-      name: name,
-      tag: tag,
-      onStart: (int sizeByByte, String digest) {
-        PullStartDto pullStartDto = PullStartDto(
-          pullInfoDto: pullInfoDto,
-          sizeByByte: sizeByByte,
-          digest: digest,
+    final streamController = StreamController<List<int>>();
+    scheduleMicrotask(() async {
+      try {
+        await service.install(
+          installRequest,
+          onEvent: (event) => _pushData(
+            streamController,
+            event.event,
+            jsonEncode(event.data),
+            logMessage: 'pullServer.push',
+          ),
+        );
+      } on InstallException catch (error) {
+        _pushData(
+          streamController,
+          EventType.ERROR,
+          jsonEncode(
+            PullErrorDto(
+              code: error.code,
+              message: error.message,
+              retryable: error.retryable,
+              requestId: error.requestId,
+            ).toJson(),
+          ),
+          logMessage: 'pullServer.error',
+        );
+      } catch (error, stackTrace) {
+        logger.log(
+          LogModule.server,
+          'pullServer.error',
+          detail: '$error\n$stackTrace',
+          level: Level.WARNING,
         );
         _pushData(
           streamController,
-          EventType.START,
-          jsonEncode(pullStartDto.toJson()),
-          logMessage: "pullServer.push",
+          EventType.ERROR,
+          jsonEncode(
+            PullErrorDto(
+              code: 'INSTALL_FAILED',
+              message: 'OpenTool installation failed',
+              retryable: true,
+            ).toJson(),
+          ),
         );
-      },
-      onDownload: (int percent) {
-        PullDownloadDto pullDownloadDto = PullDownloadDto(
-          pullInfoDto: pullInfoDto,
-          percent: percent,
-        );
-        _pushData(
-          streamController,
-          EventType.DATA,
-          jsonEncode(pullDownloadDto.toJson()),
-          logMessage: "pullServer.push",
-        );
-      },
-      onDone: () {
-        _pushData(
-          streamController,
-          EventType.DONE,
-          jsonEncode(pullInfoDto.toJson()),
-          logMessage: "pullServer.push",
-        );
-        streamController.close();
-      },
-    );
-    await serverService.afterPullToTemp(otsFileTempPath);
-
-    return Response.ok(
-      streamController.stream,
-      headers: STREAM_HEADERS,
-      context: {'shelf.io.buffer_output': false},
-    );
-  }
-
-  /// POST /servers/<serverId>/push
-  Future<Response> pushServer(Request request, String serverId) async {
-    logger.log(
-      LogModule.http,
-      "pushServer.input",
-      detail: "serverId: $serverId",
-      level: Level.FINE,
-    );
-    String otsFilePath = await serverService.beforePush(serverId);
-    StreamController<List<int>> streamController =
-        StreamController<List<int>>();
-    await manageService.push(
-      otsFilePath: otsFilePath,
-      onStart: (int sizeByByte, String digest) {
-        PushStartDto pushStartDto = PushStartDto(
-          serverId: serverId,
-          sizeByByte: sizeByByte,
-          digest: digest,
-        );
-        _pushData(
-          streamController,
-          EventType.START,
-          jsonEncode(pushStartDto.toJson()),
-          logMessage: "pushServer.push",
-        );
-      },
-      onUpload: (int percent) {
-        PushUploadDto pushUploadDto = PushUploadDto(
-          serverId: serverId,
-          percent: percent,
-        );
-        _pushData(
-          streamController,
-          EventType.DATA,
-          jsonEncode(pushUploadDto.toJson()),
-          logMessage: "pushServer.push",
-        );
-      },
-      onDone: () {
-        ServerIdDto serverIdDto = ServerIdDto(id: serverId);
-        _pushData(
-          streamController,
-          EventType.DONE,
-          jsonEncode(serverIdDto),
-          logMessage: "pushServer.push",
-        );
-        streamController.close();
-      },
-    );
-    await serverService.afterPush(otsFilePath);
+      } finally {
+        await streamController.close();
+      }
+    });
 
     return Response.ok(
       streamController.stream,

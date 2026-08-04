@@ -10,9 +10,6 @@ Router toolRouter = Router();
 /// /opentool-daemon
 void manageRoutes(ManageController manageController) {
   manageRouter.get('/version', manageController.getVersion);
-  manageRouter.post('/opentool-hub/login', manageController.login);
-  manageRouter.get('/opentool-hub/user', manageController.getUserInfo);
-  manageRouter.post('/opentool-hub/logout', manageController.logout);
   manageRouter.post('/apiKey', manageController.createApiKey);
   manageRouter.get('/apiKeys', manageController.listApiKeys);
   manageRouter.delete('/apiKey/<apiKey>', manageController.deleteApiKey);
@@ -21,10 +18,10 @@ void manageRoutes(ManageController manageController) {
 /// /opentool-daemon/servers
 void serverRoutes(ServerController serverController) {
   serverRouter.get('/list', serverController.listServers);
+  serverRouter.post('/pull', serverController.pullServer);
   serverRouter.post('/build', serverController.buildServer);
   serverRouter.delete('/<serverId>', serverController.deleteServer);
   serverRouter.post('/<serverId>/tag', serverController.tagServer);
-  serverRouter.post('/<serverId>/push', serverController.pushServer);
   serverRouter.get('/<serverId>/export', serverController.exportServer);
   serverRouter.post('/import', serverController.importServer);
   serverRouter.post('/<serverId>/alias', serverController.setAlias);

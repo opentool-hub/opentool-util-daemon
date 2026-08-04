@@ -56,27 +56,6 @@ class DaemonClient {
     return VersionDto.fromJson(response.data);
   }
 
-  /// POST /opentool-hub/login
-  Future<LoginResultDto> loginHub(LoginInfoDto loginInfoDto) async {
-    Response response = await manageDio.post(
-      '/opentool-hub/login',
-      data: loginInfoDto.toJson(),
-    );
-    return LoginResultDto.fromJson(response.data);
-  }
-
-  /// GET /opentool-hub/user
-  Future<UserInfoDto> userHub() async {
-    Response response = await manageDio.get('/opentool-hub/user');
-    return UserInfoDto.fromJson(response.data);
-  }
-
-  /// POST /opentool-hub/logout
-  Future<UserInfoDto> logoutHub() async {
-    Response response = await manageDio.post('/opentool-hub/logout');
-    return UserInfoDto.fromJson(response.data);
-  }
-
   /// POST /apiKey
   Future<ApiKeyDto> createApiKey({
     required String sudoToken,
@@ -181,19 +160,22 @@ class DaemonClient {
     return OpenToolServerDto.fromJson(response.data);
   }
 
-  /// POST /servers/pull?name=<target_name>&tag=<target_tag>
+  /// POST /servers/pull
   Future<void> pullServer(
     PullInfoDto pullInfo, {
     required void Function(PullStartDto pullStart) onStart,
     required void Function(PullDownloadDto pullDownload) onDownload,
-    required void Function(PullInfoDto pullInfo) onDone,
+    required void Function(PullDoneDto result) onDone,
+    required void Function(PullErrorDto error) onInstallError,
     void Function(Object error, StackTrace stackTrace)? onError,
   }) async {
     try {
       Stream<String> sseStream = await serverSse.request(
         '/pull',
-        queryParameters: pullInfo.toJson(),
+        requestBody: pullInfo.toJson(),
       );
+      final completed = Completer<void>();
+      var terminalReceived = false;
       void Function(String event, Map<String, dynamic> data) onEvent =
           (String event, Map<String, dynamic> data) {
             if (event == EventType.START) {
@@ -201,52 +183,46 @@ class DaemonClient {
             } else if (event == EventType.DATA) {
               onDownload(PullDownloadDto.fromJson(data));
             } else if (event == EventType.DONE) {
-              onDone(PullInfoDto.fromJson(data));
+              terminalReceived = true;
+              onDone(PullDoneDto.fromJson(data));
+              if (!completed.isCompleted) completed.complete();
+            } else if (event == EventType.ERROR) {
+              terminalReceived = true;
+              onInstallError(PullErrorDto.fromJson(data));
+              if (!completed.isCompleted) completed.complete();
             }
           };
       sseStream.listen(
-        (data) => SseClient.parse(data, onEvent),
-        onError: (error, stackTrace) {
-          onError?.call(error, stackTrace);
-        },
-        cancelOnError: true,
-      );
-    } catch (error, stackTrace) {
-      if (onError != null) {
-        onError(error, stackTrace);
-        return;
-      }
-      rethrow;
-    }
-  }
-
-  /// POST /servers/{serverId}/push
-  Future<void> pushServer(
-    String serverId, {
-    required void Function(PushStartDto pushStart) onStart,
-    required void Function(PushUploadDto pushUpload) onUpload,
-    required void Function(ServerIdDto serverId) onDone,
-    void Function(Object error, StackTrace stackTrace)? onError,
-  }) async {
-    try {
-      Stream<String> sseStream = await serverSse.request('/$serverId/push');
-      void Function(String event, Map<String, dynamic> data) onEvent =
-          (String event, Map<String, dynamic> data) {
-            if (event == EventType.START) {
-              onStart(PushStartDto.fromJson(data));
-            } else if (event == EventType.DATA) {
-              onUpload(PushUploadDto.fromJson(data));
-            } else if (event == EventType.DONE) {
-              onDone(ServerIdDto.fromJson(data));
+        (data) {
+          try {
+            SseClient.parse(data, onEvent);
+          } catch (error, stackTrace) {
+            if (!completed.isCompleted) {
+              completed.completeError(error, stackTrace);
             }
-          };
-      sseStream.listen(
-        (data) => SseClient.parse(data, onEvent),
+          }
+        },
         onError: (error, stackTrace) {
-          onError?.call(error, stackTrace);
+          if (onError != null) {
+            onError(error, stackTrace);
+            if (!completed.isCompleted) completed.complete();
+          } else if (!completed.isCompleted) {
+            completed.completeError(error, stackTrace);
+          }
+        },
+        onDone: () {
+          if (!terminalReceived && !completed.isCompleted) {
+            completed.completeError(
+              const SseProtocolException(
+                'Pull stream closed before a terminal done or error event',
+              ),
+              StackTrace.current,
+            );
+          }
         },
         cancelOnError: true,
       );
+      await completed.future;
     } catch (error, stackTrace) {
       if (onError != null) {
         onError(error, stackTrace);

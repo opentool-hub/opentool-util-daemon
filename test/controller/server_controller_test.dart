@@ -1,6 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:opentool_daemon/src/controller/server_controller.dart';
+import 'package:opentool_daemon/src/service/artifact_downloader.dart';
+import 'package:opentool_daemon/src/service/hub_install_service.dart';
 import 'package:opentool_daemon/src/service/model.dart';
+import 'package:opentool_daemon/src/service/server_service.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 import '../test_doubles.dart';
@@ -24,7 +29,7 @@ void main() {
           ),
         ],
       );
-      controller = ServerController(serverService, NoopManageService());
+      controller = ServerController(serverService);
     });
 
     test('listServers returns DTOs derived from the service models', () async {
@@ -73,5 +78,103 @@ void main() {
       expect(serverService.lastDeletedId, equals('srv-1'));
       expect(serverService.list(), completion(isEmpty));
     });
+
+    test('pullServer returns SSE before the installation completes', () async {
+      final release = Completer<void>();
+      final hubService = _ControlledHubInstallService(
+        serverService,
+        release.future,
+      );
+      controller = ServerController(
+        serverService,
+        hubInstallService: hubService,
+      );
+      final request = Request(
+        'POST',
+        Uri.parse('http://localhost/opentool-daemon/servers/pull'),
+        body: jsonEncode({
+          'registry': 'https://api.opentool-hub.com',
+          'namespace': 'litevar',
+          'name': 'demo',
+          'version': '1.2.3',
+          'client': 'embedded',
+        }),
+      );
+
+      final response = await controller.pullServer(request);
+      expect(response.statusCode, 200);
+      final responseBody = response.readAsString();
+      expect(release.isCompleted, isFalse);
+      release.complete();
+
+      final body = await responseBody;
+      expect(body, contains('event:start'));
+      expect(body, contains('event:done'));
+      expect(body.indexOf('event:start'), lessThan(body.indexOf('event:done')));
+    });
+
+    test('pullServer rejects an invalid reference before SSE', () async {
+      final hubService = _ControlledHubInstallService(
+        serverService,
+        Future<void>.value(),
+      );
+      controller = ServerController(
+        serverService,
+        hubInstallService: hubService,
+      );
+      final response = await controller.pullServer(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/opentool-daemon/servers/pull'),
+          body: jsonEncode({
+            'registry': 'https://api.opentool-hub.com',
+            'namespace': 'Lite Var',
+            'name': 'demo',
+            'version': 'latest',
+          }),
+        ),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await response.readAsString(), contains('INVALID_PULL_REQUEST'));
+    });
   });
+}
+
+class _ControlledHubInstallService extends HubInstallService {
+  final Future<void> release;
+
+  _ControlledHubInstallService(ServerService serverService, this.release)
+    : super(
+        serverService: serverService,
+        daemonVersion: 'test',
+        downloader: ArtifactDownloader(dataDir: Directory.systemTemp.path),
+      );
+
+  @override
+  Future<ServerModel> install(
+    HubInstallRequest request, {
+    required void Function(HubInstallEvent event) onEvent,
+  }) async {
+    onEvent(
+      HubInstallEvent('start', {'stage': 'resolving', 'ref': request.ref}),
+    );
+    await release;
+    final server = ServerModel(
+      id: 'installed',
+      alias: 'demo',
+      registry: request.registry,
+      repo: request.namespace,
+      name: request.name,
+      tag: request.version,
+      internalId: 'internal',
+    );
+    onEvent(
+      const HubInstallEvent('done', {
+        'stage': 'installed',
+        'server': {'id': 'installed'},
+      }),
+    );
+    return server;
+  }
 }

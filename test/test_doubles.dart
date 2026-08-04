@@ -1,4 +1,3 @@
-import 'package:opentool_daemon/src/service/config.dart';
 import 'dart:async';
 import 'package:opentool_daemon/src/service/manage_service.dart';
 import 'package:opentool_daemon/src/service/model.dart';
@@ -18,14 +17,6 @@ class FakeServerService implements ServerService {
         for (final server in initialServers ?? <ServerModel>[])
           server.id: server,
       };
-
-  @override
-  Future<void> afterPullToTemp(String otsFileTempPath) async =>
-      throw UnimplementedError();
-
-  @override
-  Future<void> afterPush(String otsFilePath) async =>
-      throw UnimplementedError();
 
   @override
   Future<void> buildServer(
@@ -61,8 +52,32 @@ class FakeServerService implements ServerService {
   Future<List<ServerModel>> list() async => _servers.values.toList();
 
   @override
-  Future<String> beforePush(String serverId) async =>
-      throw UnimplementedError();
+  Future<ServerModel?> findHubSource({
+    required String registry,
+    required String namespace,
+    required String name,
+    required String version,
+  }) async {
+    for (final server in _servers.values) {
+      if (server.registry == registry &&
+          server.namespace == namespace &&
+          server.name == name &&
+          server.version == version) {
+        return server;
+      }
+    }
+    return null;
+  }
+
+  @override
+  Future<ServerModel> installHubArtifact(
+    String sourcePath,
+    HubArtifactMetadata metadata, {
+    required void Function() onImporting,
+  }) async => throw UnimplementedError();
+
+  @override
+  Future<void> reconcileInstallations() async {}
 
   @override
   Future<ServerModel> tag(String serverId, String? tag) async {
@@ -217,43 +232,11 @@ class FakeToolService implements ToolService {
 }
 
 class NoopManageService extends ManageService {
-  NoopManageService() : super('test') {
-    currConfig = OpenToolConfig();
-  }
-
-  @override
-  Future<void> init() async {}
+  NoopManageService() : super('test');
 
   @override
   Future<VersionModel> getVersion() async =>
       VersionModel(name: 'noop', version: 'test');
-
-  @override
-  Future<void> login(LoginInfoModel loginInfoModel) async {}
-
-  @override
-  Future<String> pullToTemp({
-    required String name,
-    required String tag,
-    required void Function(int sizeByByte, String digest) onStart,
-    required void Function(int percent) onDownload,
-    required void Function() onDone,
-  }) async => '/tmp/$name-$tag';
-
-  @override
-  Future<void> push({
-    required String otsFilePath,
-    String? tag,
-    required void Function(int sizeByByte, String digest) onStart,
-    required void Function(int percent) onUpload,
-    required void Function() onDone,
-  }) async {}
-
-  @override
-  Future<UserInfo> getUserInfo() async => UserInfo();
-
-  @override
-  Future<UserInfo> logout() async => UserInfo();
 }
 
 class StubHiveServerStorage extends HiveServerStorage {

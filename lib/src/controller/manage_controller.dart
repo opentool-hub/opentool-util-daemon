@@ -26,54 +26,6 @@ class ManageController {
     return Response.ok(jsonEncode(versionDto.toJson()), headers: JSON_HEADERS);
   }
 
-  /// POST /opentool-hub/login
-  // TODO: Hide/disable this endpoint for external developers until opentool-hub backend is ready.
-  Future<Response> login(Request request) async {
-    final payload = await request.readAsString();
-    final data = jsonDecode(payload);
-    LoginInfoDto loginInfoDto = LoginInfoDto.fromJson(data);
-    await manageService.login(loginInfoDto.toModel());
-    LoginResultDto loginResultDto = LoginResultDto(
-      registry: loginInfoDto.registry,
-      username: loginInfoDto.username,
-    );
-    logger.log(
-      LogModule.http,
-      "login",
-      detail: jsonEncode(loginResultDto.toJson()),
-    );
-    return Response.ok(
-      jsonEncode(loginResultDto.toJson()),
-      headers: JSON_HEADERS,
-    );
-  }
-
-  /// GET /opentool-hub/user
-  // TODO: Hide/disable this endpoint for external developers until opentool-hub backend is ready.
-  Future<Response> getUserInfo(Request request) async {
-    UserInfo userInfo = await manageService.getUserInfo();
-    UserInfoDto userInfoDto = UserInfoDto.fromModel(userInfo);
-    logger.log(
-      LogModule.http,
-      "getUserInfo",
-      detail: jsonEncode(userInfoDto.toJson()),
-    );
-    return Response.ok(jsonEncode(userInfoDto.toJson()), headers: JSON_HEADERS);
-  }
-
-  /// POST /opentool-hub/logout
-  // TODO: Hide/disable this endpoint for external developers until opentool-hub backend is ready.
-  Future<Response> logout(Request request) async {
-    UserInfo userInfo = await manageService.logout();
-    UserInfoDto userInfoDto = UserInfoDto.fromModel(userInfo);
-    logger.log(
-      LogModule.http,
-      "logout",
-      detail: jsonEncode(userInfoDto.toJson()),
-    );
-    return Response.ok(jsonEncode(userInfoDto.toJson()), headers: JSON_HEADERS);
-  }
-
   /// POST /apiKey
   Future<Response> createApiKey(Request request) async {
     final unauthorized = await _requireSudo(request);

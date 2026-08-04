@@ -2,72 +2,95 @@ import 'package:json_annotation/json_annotation.dart';
 
 part 'dto.g.dart';
 
-@JsonSerializable()
-class LoginInfo {
-  final String username;
-  final String password;
+@JsonSerializable(explicitToJson: true)
+class ResolveResult {
+  final ResolvedTool tool;
+  final String version;
+  final String versionDigest;
+  final ResolvedArtifact artifact;
 
-  LoginInfo({required this.username, required this.password});
-
-  factory LoginInfo.fromJson(Map<String, dynamic> json) =>
-      _$LoginInfoFromJson(json);
-
-  Map<String, dynamic> toJson() => _$LoginInfoToJson(this);
-}
-
-@JsonSerializable()
-class LoginResult {
-  final String token;
-  final String repo;
-
-  LoginResult({required this.token, required this.repo});
-
-  factory LoginResult.fromJson(Map<String, dynamic> json) =>
-      _$LoginResultFromJson(json);
-
-  Map<String, dynamic> toJson() => _$LoginResultToJson(this);
-}
-
-@JsonSerializable()
-class PushResult {
-  final String digest;
-  final int size;
-  final String location;
-
-  PushResult({
-    required this.digest,
-    required this.size,
-    required this.location,
+  ResolveResult({
+    required this.tool,
+    required this.version,
+    required this.versionDigest,
+    required this.artifact,
   });
 
-  factory PushResult.fromJson(Map<String, dynamic> json) =>
-      _$PushResultFromJson(json);
+  factory ResolveResult.fromJson(Map<String, dynamic> json) =>
+      _$ResolveResultFromJson(json);
 
-  Map<String, dynamic> toJson() => _$PushResultToJson(this);
+  Map<String, dynamic> toJson() => _$ResolveResultToJson(this);
 }
 
 @JsonSerializable()
-class Manifest {
+class ResolvedTool {
+  final String namespace;
+  final String name;
+
+  ResolvedTool({required this.namespace, required this.name});
+
+  factory ResolvedTool.fromJson(Map<String, dynamic> json) =>
+      _$ResolvedToolFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ResolvedToolToJson(this);
+}
+
+@JsonSerializable()
+class ResolvedArtifact {
+  final String id;
+  final String os;
+  final String arch;
+  final String abi;
   final String fileName;
-  final ManifestConfig config;
+  final String mediaType;
+  final int size;
+  final String digest;
+  final String downloadUrl;
+  final DateTime downloadUrlExpiresAt;
 
-  Manifest({required this.fileName, required this.config});
+  ResolvedArtifact({
+    required this.id,
+    required this.os,
+    required this.arch,
+    required this.abi,
+    required this.fileName,
+    required this.mediaType,
+    required this.size,
+    required this.digest,
+    required this.downloadUrl,
+    required this.downloadUrlExpiresAt,
+  });
 
-  factory Manifest.fromJson(Map<String, dynamic> json) =>
-      _$ManifestFromJson(json);
+  factory ResolvedArtifact.fromJson(Map<String, dynamic> json) =>
+      _$ResolvedArtifactFromJson(json);
 
-  Map<String, dynamic> toJson() => _$ManifestToJson(this);
+  Map<String, dynamic> toJson() => _$ResolvedArtifactToJson(this);
 }
 
-@JsonSerializable()
-class ManifestConfig {
-  final String digest;
-  final int size;
+@JsonSerializable(createToJson: false)
+class HubErrorEnvelope {
+  final HubErrorBody error;
 
-  ManifestConfig({required this.digest, required this.size});
+  HubErrorEnvelope({required this.error});
 
-  factory ManifestConfig.fromJson(Map<String, dynamic> json) =>
-      _$ManifestConfigFromJson(json);
+  factory HubErrorEnvelope.fromJson(Map<String, dynamic> json) =>
+      _$HubErrorEnvelopeFromJson(json);
+}
 
-  Map<String, dynamic> toJson() => _$ManifestConfigToJson(this);
+@JsonSerializable(createToJson: false)
+class HubErrorBody {
+  final String code;
+  final String message;
+  final String requestId;
+  final Map<String, dynamic>? details;
+
+  HubErrorBody({
+    required this.code,
+    required this.message,
+    required this.requestId,
+    this.details,
+  });
+
+  factory HubErrorBody.fromJson(Map<String, dynamic> json) =>
+      _$HubErrorBodyFromJson(json);
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io' as io;
 
@@ -9,6 +10,15 @@ class SseRequestException implements Exception {
 
   @override
   String toString() => 'SseRequestException($statusCode, $body)';
+}
+
+class SseProtocolException implements Exception {
+  final String message;
+
+  const SseProtocolException(this.message);
+
+  @override
+  String toString() => message;
 }
 
 class EventData {
@@ -45,10 +55,12 @@ class SseClient {
     headers?.forEach((key, value) {
       request.headers.set(key, value);
     });
+    request.headers.set(io.HttpHeaders.acceptHeader, 'text/event-stream');
     if (apiKey != null)
       request.headers.add(io.HttpHeaders.authorizationHeader, 'Bearer $apiKey');
 
     if (requestBody != null) {
+      request.headers.set(io.HttpHeaders.contentTypeHeader, 'application/json');
       request.add(utf8.encode(jsonEncode(requestBody)));
     }
 
@@ -56,17 +68,39 @@ class SseClient {
 
     if (response.statusCode >= 400) {
       final errorBody = await response.transform(utf8.decoder).join();
+      httpClient.close(force: true);
       throw SseRequestException(response.statusCode, errorBody);
     }
 
-    Stream<String> stream = response.transform(utf8.decoder);
-    return stream;
+    var buffer = '';
+    Stream<String> stream = response
+        .transform(utf8.decoder)
+        .transform(
+          StreamTransformer<String, String>.fromHandlers(
+            handleData: (chunk, sink) {
+              buffer += chunk.replaceAll('\r\n', '\n');
+              var boundary = buffer.indexOf('\n\n');
+              while (boundary >= 0) {
+                sink.add('${buffer.substring(0, boundary)}\n\n');
+                buffer = buffer.substring(boundary + 2);
+                boundary = buffer.indexOf('\n\n');
+              }
+            },
+          ),
+        );
+    return (() async* {
+      try {
+        yield* stream;
+      } finally {
+        httpClient.close();
+      }
+    })();
   }
 
-  static Future<void> parse(
+  static void parse(
     String data,
     void Function(String event, Map<String, dynamic> data) onEvent,
-  ) async {
+  ) {
     final eventRegex = RegExp(r'event:([^\n]+)\ndata:(.*?)\n\n');
     final matches = eventRegex.allMatches(data);
 

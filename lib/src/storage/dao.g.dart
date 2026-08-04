@@ -57,17 +57,26 @@ class ServerDaoAdapter extends TypeAdapter<ServerDao> {
       id: fields[0] as String,
       alias: fields[1] as String,
       registry: fields[2] as String,
-      repo: fields[3] as String,
+      namespace: fields[3] as String?,
       name: fields[4] as String,
-      tag: fields[5] as String,
+      version: fields[5] as String?,
       internalId: fields[6] as String,
+      artifactId: fields[7] as String?,
+      versionDigest: fields[8] as String?,
+      artifactDigest: fields[9] as String?,
+      artifactSize: fields[10] as int?,
+      platformOs: fields[11] as String?,
+      platformArch: fields[12] as String?,
+      platformAbi: fields[13] as String?,
+      installedAt: fields[14] as DateTime?,
+      artifactMediaType: fields[15] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, ServerDao obj) {
     writer
-      ..writeByte(7)
+      ..writeByte(16)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -75,13 +84,31 @@ class ServerDaoAdapter extends TypeAdapter<ServerDao> {
       ..writeByte(2)
       ..write(obj.registry)
       ..writeByte(3)
-      ..write(obj.repo)
+      ..write(obj.namespace)
       ..writeByte(4)
       ..write(obj.name)
       ..writeByte(5)
-      ..write(obj.tag)
+      ..write(obj.version)
       ..writeByte(6)
-      ..write(obj.internalId);
+      ..write(obj.internalId)
+      ..writeByte(7)
+      ..write(obj.artifactId)
+      ..writeByte(8)
+      ..write(obj.versionDigest)
+      ..writeByte(9)
+      ..write(obj.artifactDigest)
+      ..writeByte(10)
+      ..write(obj.artifactSize)
+      ..writeByte(11)
+      ..write(obj.platformOs)
+      ..writeByte(12)
+      ..write(obj.platformArch)
+      ..writeByte(13)
+      ..write(obj.platformAbi)
+      ..writeByte(14)
+      ..write(obj.installedAt)
+      ..writeByte(15)
+      ..write(obj.artifactMediaType);
   }
 
   @override

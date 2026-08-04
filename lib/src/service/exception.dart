@@ -49,32 +49,6 @@ class OpentoolfileMissingArgumentException implements Exception {
   }
 }
 
-class LoginFailedException implements Exception {
-  late String message;
-
-  LoginFailedException(String username) {
-    this.message = 'Login failed: $username';
-  }
-
-  @override
-  String toString() {
-    return 'LoginFailedException: $message';
-  }
-}
-
-class LoginRequiredException implements Exception {
-  late String message;
-
-  LoginRequiredException() {
-    this.message = 'Login Required';
-  }
-
-  @override
-  String toString() {
-    return 'LoginRequiredException: $message';
-  }
-}
-
 class SystemMismatchException implements Exception {
   late String message;
 
@@ -110,4 +84,21 @@ class SudoAuthorizationException implements Exception {
 
   @override
   String toString() => 'SudoAuthorizationException: $message';
+}
+
+class InstallException implements Exception {
+  final String code;
+  final String message;
+  final bool retryable;
+  final String? requestId;
+
+  const InstallException({
+    required this.code,
+    required this.message,
+    required this.retryable,
+    this.requestId,
+  });
+
+  @override
+  String toString() => 'InstallException($code): $message';
 }

@@ -21,7 +21,8 @@ class DaemonLogger {
   DaemonLogger._internal() {
     _logger = Logger('OpenToolDaemonLogger');
     Logger.root.level = _level;
-    final logDir = Platform.environment['LOG_DIR'] ??
+    final logDir =
+        Platform.environment['LOG_DIR'] ??
         '${Directory.current.path}${Platform.pathSeparator}log';
     _logFile = File('$logDir${Platform.pathSeparator}daemon.log');
     _logFile.createSync(recursive: true);

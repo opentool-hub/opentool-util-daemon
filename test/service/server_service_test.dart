@@ -31,6 +31,13 @@ void main() {
           name: 'demo-server',
           tag: 'latest',
           internalId: 'int-1',
+          artifactDigest: 'sha256:${List.filled(64, 'a').join()}',
+          artifactMediaType: 'application/vnd.opentool.ots',
+          artifactSize: 1234,
+          platformOs: 'linux',
+          platformArch: 'arm64',
+          platformAbi: 'glibc',
+          installedAt: DateTime.utc(2026, 8, 3),
         ),
         ServerDao(
           id: 'srv-dup',
@@ -89,6 +96,11 @@ void main() {
 
       expect(server.id, equals('srv-dup'));
       expect(server.tag, equals('stable'));
+      expect(server.artifactDigest, serviceMetadataDigest);
+      expect(server.artifactMediaType, 'application/vnd.opentool.ots');
+      expect(server.artifactSize, 1234);
+      expect(server.platform?.abi, 'glibc');
+      expect(server.installedAt, DateTime.utc(2026, 8, 3));
 
       final servers = await service.list();
       expect(servers.where((s) => s.tag == 'stable'), hasLength(1));
@@ -102,6 +114,11 @@ void main() {
 
       expect(server.id, isNot(equals('srv-1')));
       expect(server.tag, equals('beta'));
+      expect(server.artifactDigest, serviceMetadataDigest);
+      expect(server.artifactMediaType, 'application/vnd.opentool.ots');
+      expect(server.artifactSize, 1234);
+      expect(server.platform?.abi, 'glibc');
+      expect(server.installedAt, DateTime.utc(2026, 8, 3));
       expect(serversAfter.length, equals(serversBefore.length + 1));
       expect(serversAfter.where((s) => s.tag == 'beta'), hasLength(1));
       expect(serversAfter.firstWhere((s) => s.id == 'srv-1').tag, 'latest');
@@ -379,85 +396,10 @@ void main() {
         await bundle.dispose();
       });
     });
-
-    group('afterPullToTemp platform matching', () {
-      final nativeOs = SystemUtil.getOS();
-      final nativeCpuArch = SystemUtil.getCpuArch();
-      const otherOs = 'test-os';
-      const otherCpuArch = 'test-cpu';
-
-      test('allows pull when os and cpuArch match', () async {
-        hiveServerStorage = StubHiveServerStorage();
-        internalStorage = StubHiveInternalServerStorage();
-        final service = ServerService(hiveServerStorage, internalStorage);
-        final bundle = await _createTestOtsBundle(
-          'pull-platform-match-demo',
-          os: nativeOs,
-          cpuArch: nativeCpuArch,
-        );
-
-        await service.afterPullToTemp(bundle.zipPath);
-
-        await bundle.dispose();
-        await _deleteGeneratedOtsFiles('pull-platform-match-demo');
-      });
-
-      test('rejects pull when os differs and cpuArch matches', () async {
-        hiveServerStorage = StubHiveServerStorage();
-        internalStorage = StubHiveInternalServerStorage();
-        final service = ServerService(hiveServerStorage, internalStorage);
-        final bundle = await _createTestOtsBundle(
-          'pull-platform-os-mismatch-demo',
-          os: otherOs,
-          cpuArch: nativeCpuArch,
-        );
-
-        await expectLater(
-          () => service.afterPullToTemp(bundle.zipPath),
-          throwsA(isA<SystemMismatchException>()),
-        );
-
-        await bundle.dispose();
-      });
-
-      test('rejects pull when os matches and cpuArch differs', () async {
-        hiveServerStorage = StubHiveServerStorage();
-        internalStorage = StubHiveInternalServerStorage();
-        final service = ServerService(hiveServerStorage, internalStorage);
-        final bundle = await _createTestOtsBundle(
-          'pull-platform-cpu-mismatch-demo',
-          os: nativeOs,
-          cpuArch: otherCpuArch,
-        );
-
-        await expectLater(
-          () => service.afterPullToTemp(bundle.zipPath),
-          throwsA(isA<SystemMismatchException>()),
-        );
-
-        await bundle.dispose();
-      });
-
-      test('rejects pull when both os and cpuArch differ', () async {
-        hiveServerStorage = StubHiveServerStorage();
-        internalStorage = StubHiveInternalServerStorage();
-        final service = ServerService(hiveServerStorage, internalStorage);
-        final bundle = await _createTestOtsBundle(
-          'pull-platform-full-mismatch-demo',
-          os: otherOs,
-          cpuArch: otherCpuArch,
-        );
-
-        await expectLater(
-          () => service.afterPullToTemp(bundle.zipPath),
-          throwsA(isA<SystemMismatchException>()),
-        );
-
-        await bundle.dispose();
-      });
-    });
   });
 }
+
+final serviceMetadataDigest = 'sha256:${List.filled(64, 'a').join()}';
 
 String _serverOtsFilePath(String name, String internalId) {
   return '$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}$name-$internalId.ots';
@@ -494,19 +436,6 @@ Future<_TestOtsBundle> _createTestOtsBundle(
   final zipPath = p.join(rootDir.path, 'bundle.ots');
   await ZipUtil.zipDirectory(contentDir.path, zipPath);
   return _TestOtsBundle(zipPath, rootDir);
-}
-
-Future<void> _deleteGeneratedOtsFiles(String name) async {
-  final serverDir = Directory(
-    '$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER',
-  );
-  if (!await serverDir.exists()) return;
-
-  await for (final entity in serverDir.list()) {
-    if (entity is File && p.basename(entity.path).startsWith('$name-')) {
-      await entity.delete();
-    }
-  }
 }
 
 class _TestOtsBundle {

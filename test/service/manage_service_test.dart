@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:opentool_daemon/src/constants.dart';
-import 'package:opentool_daemon/src/service/config.dart';
 import 'package:opentool_daemon/src/service/exception.dart';
 import 'package:opentool_daemon/src/service/manage_service.dart';
 import 'package:test/test.dart';
@@ -22,7 +21,6 @@ void main() {
         dataDir: tempDir.path,
         apiKeyStorage: apiKeyStorage,
       );
-      service.currConfig = OpenToolConfig();
     });
 
     tearDown(() async {

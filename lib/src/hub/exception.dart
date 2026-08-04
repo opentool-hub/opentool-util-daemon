@@ -1,13 +1,18 @@
-import 'package:json_annotation/json_annotation.dart';
-
-part 'exception.g.dart';
-
-@JsonSerializable(createFactory: false)
-class LoginFailedException implements Exception {
+class HubApiException implements Exception {
   final String code;
   final String message;
+  final int? statusCode;
+  final bool retryable;
+  final String? requestId;
 
-  LoginFailedException({required this.code, required this.message});
+  const HubApiException({
+    required this.code,
+    required this.message,
+    required this.retryable,
+    this.statusCode,
+    this.requestId,
+  });
 
-  Map<String, dynamic> toJson() => _$LoginFailedExceptionToJson(this);
+  @override
+  String toString() => 'HubApiException($code): $message';
 }

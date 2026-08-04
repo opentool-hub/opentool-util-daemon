@@ -14,50 +14,6 @@ VersionDto _$VersionDtoFromJson(Map<String, dynamic> json) => VersionDto(
 Map<String, dynamic> _$VersionDtoToJson(VersionDto instance) =>
     <String, dynamic>{'name': instance.name, 'version': instance.version};
 
-LoginInfoDto _$LoginInfoDtoFromJson(Map<String, dynamic> json) => LoginInfoDto(
-  registry: json['registry'] as String? ?? DEFAULT_REGISTRY,
-  username: json['username'] as String,
-  password: json['password'] as String,
-);
-
-Map<String, dynamic> _$LoginInfoDtoToJson(LoginInfoDto instance) =>
-    <String, dynamic>{
-      'registry': instance.registry,
-      'username': instance.username,
-      'password': instance.password,
-    };
-
-LoginResultDto _$LoginResultDtoFromJson(Map<String, dynamic> json) =>
-    LoginResultDto(
-      registry: json['registry'] as String,
-      username: json['username'] as String,
-    );
-
-Map<String, dynamic> _$LoginResultDtoToJson(LoginResultDto instance) =>
-    <String, dynamic>{
-      'registry': instance.registry,
-      'username': instance.username,
-    };
-
-UserInfoDto _$UserInfoDtoFromJson(Map<String, dynamic> json) => UserInfoDto(
-  registry: json['registry'] as String?,
-  username: json['username'] as String?,
-);
-
-Map<String, dynamic> _$UserInfoDtoToJson(UserInfoDto instance) {
-  final val = <String, dynamic>{};
-
-  void writeNotNull(String key, dynamic value) {
-    if (value != null) {
-      val[key] = value;
-    }
-  }
-
-  writeNotNull('registry', instance.registry);
-  writeNotNull('username', instance.username);
-  return val;
-}
-
 CreateApiKeyDto _$CreateApiKeyDtoFromJson(Map<String, dynamic> json) =>
     CreateApiKeyDto(name: json['name'] as String?);
 
@@ -91,19 +47,95 @@ OpenToolServerDto _$OpenToolServerDtoFromJson(Map<String, dynamic> json) =>
       id: json['id'] as String,
       alias: json['alias'] as String,
       registry: json['registry'] as String,
+      namespace: json['namespace'] as String,
+      version: json['version'] as String,
       repo: json['repo'] as String,
       name: json['name'] as String,
       tag: json['tag'] as String,
+      source: json['source'] == null
+          ? null
+          : ServerSourceDto.fromJson(json['source'] as Map<String, dynamic>),
+      platform: json['platform'] == null
+          ? null
+          : ServerPlatformDto.fromJson(
+              json['platform'] as Map<String, dynamic>,
+            ),
+      size: (json['size'] as num?)?.toInt(),
+      installedAt: json['installedAt'] == null
+          ? null
+          : DateTime.parse(json['installedAt'] as String),
     );
 
-Map<String, dynamic> _$OpenToolServerDtoToJson(OpenToolServerDto instance) =>
+Map<String, dynamic> _$OpenToolServerDtoToJson(OpenToolServerDto instance) {
+  final val = <String, dynamic>{
+    'id': instance.id,
+    'alias': instance.alias,
+    'registry': instance.registry,
+    'namespace': instance.namespace,
+    'version': instance.version,
+    'repo': instance.repo,
+    'name': instance.name,
+    'tag': instance.tag,
+  };
+
+  void writeNotNull(String key, dynamic value) {
+    if (value != null) {
+      val[key] = value;
+    }
+  }
+
+  writeNotNull('source', instance.source?.toJson());
+  writeNotNull('platform', instance.platform?.toJson());
+  writeNotNull('size', instance.size);
+  writeNotNull('installedAt', instance.installedAt?.toIso8601String());
+  return val;
+}
+
+ServerSourceDto _$ServerSourceDtoFromJson(Map<String, dynamic> json) =>
+    ServerSourceDto(
+      registry: json['registry'] as String,
+      namespace: json['namespace'] as String,
+      name: json['name'] as String,
+      version: json['version'] as String,
+      versionDigest: json['versionDigest'] as String?,
+      artifactId: json['artifactId'] as String?,
+      artifactDigest: json['artifactDigest'] as String?,
+      artifactMediaType: json['artifactMediaType'] as String?,
+    );
+
+Map<String, dynamic> _$ServerSourceDtoToJson(ServerSourceDto instance) {
+  final val = <String, dynamic>{
+    'registry': instance.registry,
+    'namespace': instance.namespace,
+    'name': instance.name,
+    'version': instance.version,
+  };
+
+  void writeNotNull(String key, dynamic value) {
+    if (value != null) {
+      val[key] = value;
+    }
+  }
+
+  writeNotNull('versionDigest', instance.versionDigest);
+  writeNotNull('artifactId', instance.artifactId);
+  writeNotNull('artifactDigest', instance.artifactDigest);
+  writeNotNull('artifactMediaType', instance.artifactMediaType);
+  return val;
+}
+
+ServerPlatformDto _$ServerPlatformDtoFromJson(Map<String, dynamic> json) =>
+    ServerPlatformDto(
+      os: json['os'] as String,
+      arch: json['arch'] as String,
+      abi: json['abi'] as String,
+    );
+
+Map<String, dynamic> _$ServerPlatformDtoToJson(ServerPlatformDto instance) =>
     <String, dynamic>{
-      'id': instance.id,
-      'alias': instance.alias,
-      'registry': instance.registry,
-      'repo': instance.repo,
-      'name': instance.name,
-      'tag': instance.tag,
+      'os': instance.os,
+      'arch': instance.arch,
+      'abi': instance.abi,
     };
 
 EventMessageDto _$EventMessageDtoFromJson(Map<String, dynamic> json) =>
@@ -143,36 +175,21 @@ CommandOutputDto _$CommandOutputDtoFromJson(Map<String, dynamic> json) =>
 Map<String, dynamic> _$CommandOutputDtoToJson(CommandOutputDto instance) =>
     <String, dynamic>{'script': instance.script, 'output': instance.output};
 
-PushStartDto _$PushStartDtoFromJson(Map<String, dynamic> json) => PushStartDto(
-  serverId: json['serverId'] as String,
-  sizeByByte: (json['sizeByByte'] as num).toInt(),
-  digest: json['digest'] as String,
+PullInfoDto _$PullInfoDtoFromJson(Map<String, dynamic> json) => PullInfoDto(
+  registry: json['registry'] as String? ?? DEFAULT_REGISTRY,
+  namespace: json['namespace'] as String,
+  name: json['name'] as String,
+  version: json['version'] as String,
+  client: json['client'] as String?,
 );
 
-Map<String, dynamic> _$PushStartDtoToJson(PushStartDto instance) =>
-    <String, dynamic>{
-      'serverId': instance.serverId,
-      'sizeByByte': instance.sizeByByte,
-      'digest': instance.digest,
-    };
-
-PushUploadDto _$PushUploadDtoFromJson(Map<String, dynamic> json) =>
-    PushUploadDto(
-      serverId: json['serverId'] as String,
-      percent: (json['percent'] as num).toInt(),
-    );
-
-Map<String, dynamic> _$PushUploadDtoToJson(PushUploadDto instance) =>
-    <String, dynamic>{
-      'serverId': instance.serverId,
-      'percent': instance.percent,
-    };
-
-PullInfoDto _$PullInfoDtoFromJson(Map<String, dynamic> json) =>
-    PullInfoDto(name: json['name'] as String, tag: json['tag'] as String?);
-
 Map<String, dynamic> _$PullInfoDtoToJson(PullInfoDto instance) {
-  final val = <String, dynamic>{'name': instance.name};
+  final val = <String, dynamic>{
+    'registry': instance.registry,
+    'namespace': instance.namespace,
+    'name': instance.name,
+    'version': instance.version,
+  };
 
   void writeNotNull(String key, dynamic value) {
     if (value != null) {
@@ -180,38 +197,75 @@ Map<String, dynamic> _$PullInfoDtoToJson(PullInfoDto instance) {
     }
   }
 
-  writeNotNull('tag', instance.tag);
+  writeNotNull('client', instance.client);
   return val;
 }
 
-PullStartDto _$PullStartDtoFromJson(Map<String, dynamic> json) => PullStartDto(
-  pullInfoDto: PullInfoDto.fromJson(
-    json['pullInfoDto'] as Map<String, dynamic>,
-  ),
-  sizeByByte: (json['sizeByByte'] as num).toInt(),
-  digest: json['digest'] as String,
-);
+PullStartDto _$PullStartDtoFromJson(Map<String, dynamic> json) =>
+    PullStartDto(stage: json['stage'] as String, ref: json['ref'] as String);
 
 Map<String, dynamic> _$PullStartDtoToJson(PullStartDto instance) =>
-    <String, dynamic>{
-      'pullInfoDto': instance.pullInfoDto.toJson(),
-      'sizeByByte': instance.sizeByByte,
-      'digest': instance.digest,
-    };
+    <String, dynamic>{'stage': instance.stage, 'ref': instance.ref};
 
 PullDownloadDto _$PullDownloadDtoFromJson(Map<String, dynamic> json) =>
     PullDownloadDto(
-      pullInfoDto: PullInfoDto.fromJson(
-        json['pullInfoDto'] as Map<String, dynamic>,
-      ),
-      percent: (json['percent'] as num).toInt(),
+      stage: json['stage'] as String,
+      downloadedBytes: (json['downloadedBytes'] as num?)?.toInt(),
+      totalBytes: (json['totalBytes'] as num?)?.toInt(),
+      percent: (json['percent'] as num?)?.toInt(),
+      digest: json['digest'] as String?,
     );
 
-Map<String, dynamic> _$PullDownloadDtoToJson(PullDownloadDto instance) =>
+Map<String, dynamic> _$PullDownloadDtoToJson(PullDownloadDto instance) {
+  final val = <String, dynamic>{'stage': instance.stage};
+
+  void writeNotNull(String key, dynamic value) {
+    if (value != null) {
+      val[key] = value;
+    }
+  }
+
+  writeNotNull('downloadedBytes', instance.downloadedBytes);
+  writeNotNull('totalBytes', instance.totalBytes);
+  writeNotNull('percent', instance.percent);
+  writeNotNull('digest', instance.digest);
+  return val;
+}
+
+PullDoneDto _$PullDoneDtoFromJson(Map<String, dynamic> json) => PullDoneDto(
+  stage: json['stage'] as String? ?? 'installed',
+  server: OpenToolServerDto.fromJson(json['server'] as Map<String, dynamic>),
+);
+
+Map<String, dynamic> _$PullDoneDtoToJson(PullDoneDto instance) =>
     <String, dynamic>{
-      'pullInfoDto': instance.pullInfoDto.toJson(),
-      'percent': instance.percent,
+      'stage': instance.stage,
+      'server': instance.server.toJson(),
     };
+
+PullErrorDto _$PullErrorDtoFromJson(Map<String, dynamic> json) => PullErrorDto(
+  code: json['code'] as String,
+  message: json['message'] as String,
+  retryable: json['retryable'] as bool,
+  requestId: json['requestId'] as String?,
+);
+
+Map<String, dynamic> _$PullErrorDtoToJson(PullErrorDto instance) {
+  final val = <String, dynamic>{
+    'code': instance.code,
+    'message': instance.message,
+    'retryable': instance.retryable,
+  };
+
+  void writeNotNull(String key, dynamic value) {
+    if (value != null) {
+      val[key] = value;
+    }
+  }
+
+  writeNotNull('requestId', instance.requestId);
+  return val;
+}
 
 ServerIdDto _$ServerIdDtoFromJson(Map<String, dynamic> json) =>
     ServerIdDto(id: json['id'] as String);

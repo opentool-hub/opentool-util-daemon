@@ -171,30 +171,3 @@ class OpenToolRun {
 //
 //   Map<String, dynamic> toJson() => _$OpenToolServerMetadataToJson(this);
 // }
-
-@JsonSerializable(includeIfNull: false, explicitToJson: true)
-class OpenToolConfig {
-  String? registry;
-  String? username;
-  HubAuth? auth;
-
-  OpenToolConfig({this.registry, this.username, this.auth});
-
-  factory OpenToolConfig.fromJson(Map<String, dynamic> json) =>
-      _$OpenToolConfigFromJson(json);
-
-  Map<String, dynamic> toJson() => _$OpenToolConfigToJson(this);
-}
-
-@JsonSerializable(includeIfNull: false, explicitToJson: true)
-class HubAuth {
-  final String repo;
-  final String token;
-
-  HubAuth({required this.repo, required this.token});
-
-  factory HubAuth.fromJson(Map<String, dynamic> json) =>
-      _$HubAuthFromJson(json);
-
-  Map<String, dynamic> toJson() => _$HubAuthToJson(this);
-}

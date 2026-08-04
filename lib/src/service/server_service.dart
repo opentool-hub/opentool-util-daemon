@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:opentool_daemon/opentool_daemon_utils.dart';
 import 'package:unique_id_dart/unique_id_dart.dart';
 import 'package:path/path.dart' as p;
@@ -7,6 +8,7 @@ import '../constants.dart';
 import '../storage/cache_storage.dart';
 import '../storage/dao.dart';
 import '../storage/hive_storage.dart';
+import '../utils/platform_detector.dart';
 import 'config.dart';
 import 'exception.dart';
 import 'model.dart';
@@ -47,6 +49,231 @@ class ServerService {
     if (serverDao == null) throw ServerNotFoundException(serverId);
     logger.log(LogModule.server, "get.result", detail: "serverId: $serverId");
     return ServerModel.fromDao(serverDao);
+  }
+
+  Future<ServerModel?> findHubSource({
+    required String registry,
+    required String namespace,
+    required String name,
+    required String version,
+  }) async {
+    for (final dao in await _cacheServerStorage.list()) {
+      if (dao.registry == registry &&
+          dao.namespace == namespace &&
+          dao.name == name &&
+          dao.version == version) {
+        return ServerModel.fromDao(dao);
+      }
+    }
+    return null;
+  }
+
+  Future<ServerModel> installHubArtifact(
+    String sourcePath,
+    HubArtifactMetadata metadata, {
+    required void Function() onImporting,
+  }) {
+    final identity = ServerIdentity(
+      registry: metadata.registry,
+      namespace: metadata.namespace,
+      name: metadata.name,
+      version: metadata.version,
+    );
+    return _withIdentityLock(identity, () async {
+      final existing = await findHubSource(
+        registry: metadata.registry,
+        namespace: metadata.namespace,
+        name: metadata.name,
+        version: metadata.version,
+      );
+      if (existing != null) {
+        if (existing.artifactDigest == metadata.artifactDigest) return existing;
+        throw InstallException(
+          code: 'ARTIFACT_VERSION_CONFLICT',
+          message:
+              'The requested published version is already installed with a different digest',
+          retryable: false,
+        );
+      }
+
+      try {
+        final inspection = await ZipUtil.inspect(sourcePath);
+        final config = OpentoolfileConfig.fromJson(inspection.manifest);
+        _validateHubManifest(config, inspection.files, metadata);
+        onImporting();
+
+        final internalId = uniqueId();
+        final serverId = uniqueId();
+        final serverDirectory = Directory(p.join(OPENTOOL_PATH, SERVER_FOLDER));
+        await serverDirectory.create(recursive: true);
+        final targetPath = p.join(
+          serverDirectory.path,
+          '${metadata.name}-$internalId.ots',
+        );
+        final pendingPath = '$targetPath.pending';
+        var internalWritten = false;
+        var serverWritten = false;
+        try {
+          await File(sourcePath).copy(pendingPath);
+          await File(pendingPath).rename(targetPath);
+          await _internalServerStorage.add(
+            InternalServerDao(id: internalId, file: targetPath),
+          );
+          internalWritten = true;
+          final dao = ServerDao(
+            id: serverId,
+            alias: metadata.name,
+            registry: metadata.registry,
+            namespace: metadata.namespace,
+            name: metadata.name,
+            version: metadata.version,
+            internalId: internalId,
+            artifactId: metadata.artifactId,
+            versionDigest: metadata.versionDigest,
+            artifactDigest: metadata.artifactDigest,
+            artifactMediaType: metadata.artifactMediaType,
+            artifactSize: metadata.artifactSize,
+            platformOs: metadata.platform.os,
+            platformArch: metadata.platform.arch,
+            platformAbi: metadata.platform.abi,
+            installedAt: DateTime.now().toUtc(),
+          );
+          await _cacheServerStorage.add(dao);
+          serverWritten = true;
+          await _notifyServersChanged();
+          return ServerModel.fromDao(dao);
+        } catch (_) {
+          if (serverWritten) await _cacheServerStorage.remove(serverId);
+          if (internalWritten) await _internalServerStorage.remove(internalId);
+          await DirectoryUtil.deleteFile(pendingPath);
+          await DirectoryUtil.deleteFile(targetPath);
+          rethrow;
+        }
+      } on InstallException {
+        rethrow;
+      } on FormatException catch (error) {
+        throw InstallException(
+          code: 'ARTIFACT_INVALID',
+          message: error.message,
+          retryable: false,
+        );
+      } on FileSystemException catch (error) {
+        throw InstallException(
+          code: 'DISK_WRITE_FAILED',
+          message: error.message,
+          retryable: true,
+        );
+      } on Object catch (error) {
+        throw InstallException(
+          code: 'INSTALL_FAILED',
+          message: 'Unable to register the artifact: $error',
+          retryable: true,
+        );
+      }
+    });
+  }
+
+  void _validateHubManifest(
+    OpentoolfileConfig config,
+    Set<String> files,
+    HubArtifactMetadata metadata,
+  ) {
+    String normalizedName(String value) => value
+        .trim()
+        .toLowerCase()
+        .replaceFirst(RegExp(r'^opentool-server-'), '');
+    if (normalizedName(config.name) != normalizedName(metadata.name) ||
+        config.tag?.trim() != metadata.version ||
+        config.os.toLowerCase() != metadata.platform.os ||
+        config.cpuArch.toLowerCase() != metadata.platform.arch) {
+      throw const FormatException(
+        'Opentoolfile.json does not match the resolved Hub artifact',
+      );
+    }
+    final resolved = OpentoolfileConfigUtil.resolve(config);
+    final workdir = resolved.run.workdir.trim().isEmpty
+        ? '.'
+        : resolved.run.workdir.trim();
+    final entrypoint = resolved.run.entrypoint.trim();
+    if (workdir.contains(r'\') ||
+        entrypoint.contains(r'\') ||
+        p.posix.isAbsolute(workdir) ||
+        p.posix.isAbsolute(entrypoint)) {
+      throw const FormatException(
+        'Tool entrypoint is not a safe relative path',
+      );
+    }
+    final executable = p.posix.normalize(p.posix.join(workdir, entrypoint));
+    if (executable == '.' ||
+        executable == '..' ||
+        executable.startsWith('../')) {
+      throw const FormatException('Tool entrypoint escapes the artifact');
+    }
+    final candidates = <String>[executable];
+    if (metadata.platform.os == 'windows' &&
+        p.posix.extension(executable).isEmpty) {
+      candidates.addAll([
+        '$executable.exe',
+        '$executable.cmd',
+        '$executable.bat',
+      ]);
+    }
+    if (!candidates.any(files.contains)) {
+      throw const FormatException(
+        'Tool entrypoint is missing from the artifact',
+      );
+    }
+  }
+
+  Future<void> reconcileInstallations() async {
+    final serverDirectory = Directory(p.join(OPENTOOL_PATH, SERVER_FOLDER));
+    final serverRoot = p.normalize(serverDirectory.absolute.path);
+    bool isManagedServerFile(String path) =>
+        p.isWithin(serverRoot, p.normalize(File(path).absolute.path));
+    final servers = await _cacheServerStorage.list();
+    final internals = await _internalServerStorage.list();
+    final internalById = {for (final item in internals) item.id: item};
+    for (final server in servers) {
+      final internal = internalById[server.internalId];
+      if (internal == null || !await File(internal.file).exists()) {
+        await _cacheServerStorage.remove(server.id);
+      }
+    }
+
+    final referenced = (await _cacheServerStorage.list())
+        .map((server) => server.internalId)
+        .toSet();
+    for (final internal in await _internalServerStorage.list()) {
+      if (!referenced.contains(internal.id)) {
+        await _internalServerStorage.remove(internal.id);
+        if (isManagedServerFile(internal.file)) {
+          await DirectoryUtil.deleteFile(internal.file);
+        }
+      }
+    }
+
+    final trackedPaths = (await _internalServerStorage.list())
+        .map((item) => p.normalize(File(item.file).absolute.path))
+        .toSet();
+    if (await serverDirectory.exists()) {
+      await for (final entity in serverDirectory.list()) {
+        if (entity is! File) continue;
+        final absolute = p.normalize(entity.absolute.path);
+        if (entity.path.endsWith('.pending') ||
+            (entity.path.endsWith('.ots') &&
+                !trackedPaths.contains(absolute))) {
+          await entity.delete();
+        }
+      }
+    }
+    final downloads = Directory(p.join(OPENTOOL_PATH, 'downloads'));
+    if (await downloads.exists()) {
+      await for (final entity in downloads.list()) {
+        if (entity is File && entity.path.endsWith('.part')) {
+          await entity.delete();
+        }
+      }
+    }
   }
 
   Future<void> buildServer(
@@ -117,13 +344,21 @@ class ServerService {
     await _internalServerStorage.add(serverDao);
     final server = await _upsertServerIdentity(
       ServerIdentity(
-        registry: NULL_REGISTRY,
-        repo: NULL_REPO,
+        registry: LOCAL_REGISTRY,
+        namespace: LOCAL_NAMESPACE,
         name: name,
-        tag: tag ?? NULL_TAG,
+        version: tag ?? NULL_TAG,
       ),
       internalId,
     );
+    final artifactFile = File(otsFilePath);
+    final digest = await sha256.bind(artifactFile.openRead()).first;
+    server.artifactDigest = 'sha256:$digest';
+    server.artifactMediaType = 'application/vnd.opentool.ots';
+    server.artifactSize = await artifactFile.length();
+    server.platform = await PlatformDetector().detect();
+    server.installedAt = DateTime.now().toUtc();
+    await _cacheServerStorage.update(server.toDao());
 
     /// 7. remove temp folder
     DirectoryUtil.deleteDirectory(tempDirectory.path);
@@ -149,105 +384,15 @@ class ServerService {
       serverDao.internalId,
     );
     if (!isInternalServerUsed) {
-      String otsFilePath =
-          "$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}${serverDao.name}-${serverDao.internalId}.ots";
-      await DirectoryUtil.deleteFile(otsFilePath);
-      await _internalServerStorage.remove(serverDao.internalId);
+      final internal = await _internalServerStorage.remove(
+        serverDao.internalId,
+      );
+      if (internal != null) await DirectoryUtil.deleteFile(internal.file);
     }
     logger.log(
       LogModule.server,
       "delete.result",
       detail: "serverId: $serverId removed",
-    );
-  }
-
-  Future<void> afterPullToTemp(String otsFileTempPath) async {
-    logger.log(
-      LogModule.server,
-      "afterPull.input",
-      detail: "tempPath: $otsFileTempPath",
-    );
-
-    /// 1. parse ots info
-    String unzipFolder = await ZipUtil.unzipToTemp(otsFileTempPath);
-    String opentoolfileJsonPath =
-        "$unzipFolder${Platform.pathSeparator}$OPENTOOL_FILE_JSON_NAME";
-    Map<String, dynamic> opentoolfileJson = await JsonFileUtil.readFromFile(
-      opentoolfileJsonPath,
-    );
-    OpentoolfileConfig opentoolfileConfig = OpentoolfileConfig.fromJson(
-      opentoolfileJson,
-    );
-
-    /// 2. check os and cpuArch matching
-    String os = SystemUtil.getOS();
-    String cpuArch = SystemUtil.getCpuArch();
-
-    if (opentoolfileConfig.os != os || opentoolfileConfig.cpuArch != cpuArch)
-      throw SystemMismatchException(
-        os,
-        cpuArch,
-        opentoolfileConfig.os,
-        opentoolfileConfig.cpuArch,
-      );
-
-    String internalId = uniqueId();
-    String targetPath =
-        "$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}${opentoolfileConfig.name}-$internalId.ots";
-    await DirectoryUtil.copyAndRenameFile(otsFileTempPath, targetPath);
-    logger.log(
-      LogModule.server,
-      "afterPull.result",
-      detail: "targetPath: $targetPath",
-    );
-  }
-
-  Future<String> beforePush(String serverId) async {
-    logger.log(
-      LogModule.server,
-      "beforePush.input",
-      detail: "serverId: $serverId",
-    );
-
-    /// 1. get server info
-    ServerDao? serverDao = await _cacheServerStorage.get(serverId);
-    if (serverDao == null) {
-      throw ServerNotFoundException(serverId);
-    }
-
-    /// 2. get internal server info
-    String internalId = serverDao.internalId;
-    InternalServerDao? internalServerDao = await _internalServerStorage.get(
-      internalId,
-    );
-    if (internalServerDao == null) throw ServerNotFoundException(serverId);
-
-    /// 3. copy to temp folder and rename to {repo}-{name}-{tag}-{os}-{cpu}.ots
-    String sourcePath = internalServerDao.file;
-    Directory tempDirectory = await Directory.systemTemp.createTemp(
-      'OpentoolServer_$internalId',
-    );
-    String os = await SystemUtil.getOS();
-    String cpuArch = await SystemUtil.getCpuArch();
-    String otsFileTargetPath =
-        "$tempDirectory${Platform.pathSeparator}${serverDao.repo}-${serverDao.name}-${serverDao.tag}-${os}-${cpuArch}.ots";
-    await DirectoryUtil.copyAndRenameFile(sourcePath, otsFileTargetPath);
-
-    logger.log(
-      LogModule.server,
-      "beforePush.result",
-      detail: "tempPath: $otsFileTargetPath",
-    );
-    return otsFileTargetPath;
-  }
-
-  Future<void> afterPush(String otsFilePath) async {
-    File otsFile = File(otsFilePath);
-    await DirectoryUtil.deleteDirectory(otsFile.parent.path);
-    logger.log(
-      LogModule.server,
-      "afterPush.result",
-      detail: "cleanedPath: ${otsFile.parent.path}",
     );
   }
 
@@ -273,10 +418,10 @@ class ServerService {
 
     /// 3. copy to export folder and rename to {repo}-{name}-{tag}-{os}-{cpu}.ots
     String sourcePath = internalServerDao.file;
-    String os = await SystemUtil.getOS();
-    String cpuArch = await SystemUtil.getCpuArch();
+    String os = SystemUtil.getOS();
+    String cpuArch = SystemUtil.getCpuArch();
     String targetPath =
-        "$exportFolder${Platform.pathSeparator}${serverDao.repo}-${serverDao.name}-${serverDao.tag}-${os}-${cpuArch}.ots";
+        "$exportFolder${Platform.pathSeparator}${serverDao.namespace}-${serverDao.name}-${serverDao.version}-${os}-${cpuArch}.ots";
     await DirectoryUtil.copyAndRenameFile(sourcePath, targetPath);
     logger.log(
       LogModule.server,
@@ -292,22 +437,18 @@ class ServerService {
       detail: "source: $otsFilePath",
     );
 
-    /// 1. unzip otpkgFile to system temp folder to otsFileName folder
-    String tempFolder = await ZipUtil.unzipToTemp(otsFilePath);
-
-    /// 2. parse `Opentoolfile.json`
-    String opentoolFileJsonPath =
-        "$tempFolder${Platform.pathSeparator}$OPENTOOL_FILE_JSON_NAME";
-    Map<String, dynamic> opentoolFileJson = await JsonFileUtil.readFromFile(
-      opentoolFileJsonPath,
-    );
+    /// 1. inspect and parse `Opentoolfile.json`
+    final sourceFile = File(otsFilePath);
+    final inspection = await ZipUtil.inspect(otsFilePath);
+    Map<String, dynamic> opentoolFileJson = inspection.manifest;
     OpentoolfileConfig opentoolfileConfig = OpentoolfileConfig.fromJson(
       opentoolFileJson,
     );
 
     /// 3. check os and cpuArch matching
-    String os = SystemUtil.getOS();
-    String cpuArch = SystemUtil.getCpuArch();
+    final platform = await PlatformDetector().detect();
+    String os = platform.os;
+    String cpuArch = platform.arch;
 
     if (opentoolfileConfig.os != os || opentoolfileConfig.cpuArch != cpuArch)
       throw SystemMismatchException(
@@ -332,13 +473,20 @@ class ServerService {
 
     final serverModel = await _upsertServerIdentity(
       ServerIdentity(
-        registry: NULL_REGISTRY,
-        repo: NULL_REPO,
+        registry: LOCAL_REGISTRY,
+        namespace: LOCAL_NAMESPACE,
         name: opentoolfileConfig.name,
-        tag: opentoolfileConfig.tag ?? NULL_TAG,
+        version: opentoolfileConfig.tag ?? NULL_TAG,
       ),
       internalId,
     );
+    final digest = await sha256.bind(sourceFile.openRead()).first;
+    serverModel.artifactDigest = 'sha256:$digest';
+    serverModel.artifactMediaType = 'application/vnd.opentool.ots';
+    serverModel.artifactSize = await sourceFile.length();
+    serverModel.platform = platform;
+    serverModel.installedAt = DateTime.now().toUtc();
+    await _cacheServerStorage.update(serverModel.toDao());
 
     logger.log(
       LogModule.server,
@@ -357,6 +505,13 @@ class ServerService {
 
     ServerDao? serverDao = await _cacheServerStorage.get(serverId);
     if (serverDao == null) throw ServerNotFoundException(serverId);
+    if (serverDao.versionDigest != null) {
+      throw const InstallException(
+        code: 'HUB_VERSION_IMMUTABLE',
+        message: 'Hub-installed server versions cannot be retagged locally',
+        retryable: false,
+      );
+    }
     final newTag = tag ?? NULL_TAG;
     if (serverDao.tag == newTag) {
       logger.log(
@@ -370,11 +525,12 @@ class ServerService {
     final taggedServer = await _upsertServerIdentity(
       ServerIdentity(
         registry: serverDao.registry,
-        repo: serverDao.repo,
+        namespace: serverDao.namespace,
         name: serverDao.name,
-        tag: newTag,
+        version: newTag,
       ),
       serverDao.internalId,
+      artifactSource: serverDao,
     );
 
     logger.log(
@@ -437,8 +593,9 @@ class ServerService {
 
   Future<ServerModel> _upsertServerIdentity(
     ServerIdentity identity,
-    String internalId,
-  ) {
+    String internalId, {
+    ServerDao? artifactSource,
+  }) {
     return _withIdentityLock(identity, () async {
       await _cacheServerStorage.list();
       final matching =
@@ -455,10 +612,19 @@ class ServerService {
           id: serverId,
           alias: serverId,
           registry: identity.registry,
-          repo: identity.repo,
+          namespace: identity.namespace,
           name: identity.name,
-          tag: identity.tag,
+          version: identity.version,
           internalId: internalId,
+          artifactId: artifactSource?.artifactId,
+          versionDigest: artifactSource?.versionDigest,
+          artifactDigest: artifactSource?.artifactDigest,
+          artifactMediaType: artifactSource?.artifactMediaType,
+          artifactSize: artifactSource?.artifactSize,
+          platformOs: artifactSource?.platformOs,
+          platformArch: artifactSource?.platformArch,
+          platformAbi: artifactSource?.platformAbi,
+          installedAt: artifactSource?.installedAt,
         );
         await _cacheServerStorage.add(canonical);
       } else {
@@ -470,10 +636,19 @@ class ServerService {
           id: existing.id,
           alias: existing.alias,
           registry: identity.registry,
-          repo: identity.repo,
+          namespace: identity.namespace,
           name: identity.name,
-          tag: identity.tag,
+          version: identity.version,
           internalId: internalId,
+          artifactId: artifactSource?.artifactId,
+          versionDigest: artifactSource?.versionDigest,
+          artifactDigest: artifactSource?.artifactDigest,
+          artifactMediaType: artifactSource?.artifactMediaType,
+          artifactSize: artifactSource?.artifactSize,
+          platformOs: artifactSource?.platformOs,
+          platformArch: artifactSource?.platformArch,
+          platformAbi: artifactSource?.platformAbi,
+          installedAt: artifactSource?.installedAt,
         );
         await _cacheServerStorage.update(canonical);
       }

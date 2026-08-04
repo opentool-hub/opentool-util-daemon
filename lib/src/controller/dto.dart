@@ -21,59 +21,6 @@ class VersionDto {
 }
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
-class LoginInfoDto {
-  String registry;
-  String username;
-  String password;
-
-  LoginInfoDto({
-    this.registry = DEFAULT_REGISTRY,
-    required this.username,
-    required this.password,
-  });
-
-  factory LoginInfoDto.fromJson(Map<String, dynamic> json) =>
-      _$LoginInfoDtoFromJson(json);
-
-  Map<String, dynamic> toJson() => _$LoginInfoDtoToJson(this);
-
-  LoginInfoModel toModel() => LoginInfoModel(
-    registry: registry,
-    username: username,
-    password: password,
-  );
-}
-
-@JsonSerializable(explicitToJson: true, includeIfNull: false)
-class LoginResultDto {
-  String registry;
-  String username;
-
-  LoginResultDto({required this.registry, required this.username});
-
-  factory LoginResultDto.fromJson(Map<String, dynamic> json) =>
-      _$LoginResultDtoFromJson(json);
-
-  Map<String, dynamic> toJson() => _$LoginResultDtoToJson(this);
-}
-
-@JsonSerializable(explicitToJson: true, includeIfNull: false)
-class UserInfoDto {
-  String? registry;
-  String? username;
-
-  UserInfoDto({this.registry, this.username});
-
-  factory UserInfoDto.fromJson(Map<String, dynamic> json) =>
-      _$UserInfoDtoFromJson(json);
-
-  Map<String, dynamic> toJson() => _$UserInfoDtoToJson(this);
-
-  factory UserInfoDto.fromModel(UserInfo userInfo) =>
-      UserInfoDto(registry: userInfo.registry, username: userInfo.username);
-}
-
-@JsonSerializable(explicitToJson: true, includeIfNull: false)
 class CreateApiKeyDto {
   String? name;
 
@@ -114,21 +61,41 @@ class OpenToolServerDto {
   String id;
   String alias;
   String registry;
+  String namespace;
+  String version;
+  @Deprecated('Use namespace')
   String repo;
   String name;
+  @Deprecated('Use version')
   String tag;
+  ServerSourceDto? source;
+  ServerPlatformDto? platform;
+  int? size;
+  DateTime? installedAt;
 
   OpenToolServerDto({
     required this.id,
     required this.alias,
     required this.registry,
+    required this.namespace,
+    required this.version,
     required this.repo,
     required this.name,
     required this.tag,
+    this.source,
+    this.platform,
+    this.size,
+    this.installedAt,
   });
 
-  factory OpenToolServerDto.fromJson(Map<String, dynamic> json) =>
-      _$OpenToolServerDtoFromJson(json);
+  factory OpenToolServerDto.fromJson(Map<String, dynamic> json) {
+    final migrated = Map<String, dynamic>.from(json);
+    migrated['namespace'] ??= migrated['repo'];
+    migrated['version'] ??= migrated['tag'];
+    migrated['repo'] ??= migrated['namespace'];
+    migrated['tag'] ??= migrated['version'];
+    return _$OpenToolServerDtoFromJson(migrated);
+  }
 
   Map<String, dynamic> toJson() => _$OpenToolServerDtoToJson(this);
 
@@ -136,10 +103,74 @@ class OpenToolServerDto {
     id: model.id,
     alias: model.alias,
     registry: model.registry,
+    namespace: model.namespace,
+    version: model.version,
     repo: model.repo,
     name: model.name,
     tag: model.tag,
+    source: ServerSourceDto.fromModel(model),
+    platform: model.platform == null
+        ? null
+        : ServerPlatformDto.fromModel(model.platform!),
+    size: model.artifactSize,
+    installedAt: model.installedAt,
   );
+}
+
+@JsonSerializable(explicitToJson: true, includeIfNull: false)
+class ServerSourceDto {
+  String registry;
+  String namespace;
+  String name;
+  String version;
+  String? versionDigest;
+  String? artifactId;
+  String? artifactDigest;
+  String? artifactMediaType;
+
+  ServerSourceDto({
+    required this.registry,
+    required this.namespace,
+    required this.name,
+    required this.version,
+    this.versionDigest,
+    this.artifactId,
+    this.artifactDigest,
+    this.artifactMediaType,
+  });
+
+  factory ServerSourceDto.fromJson(Map<String, dynamic> json) =>
+      _$ServerSourceDtoFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ServerSourceDtoToJson(this);
+
+  factory ServerSourceDto.fromModel(ServerModel model) => ServerSourceDto(
+    registry: model.registry,
+    namespace: model.namespace,
+    name: model.name,
+    version: model.version,
+    versionDigest: model.versionDigest,
+    artifactId: model.artifactId,
+    artifactDigest: model.artifactDigest,
+    artifactMediaType: model.artifactMediaType,
+  );
+}
+
+@JsonSerializable()
+class ServerPlatformDto {
+  String os;
+  String arch;
+  String abi;
+
+  ServerPlatformDto({required this.os, required this.arch, required this.abi});
+
+  factory ServerPlatformDto.fromJson(Map<String, dynamic> json) =>
+      _$ServerPlatformDtoFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ServerPlatformDtoToJson(this);
+
+  factory ServerPlatformDto.fromModel(ServerPlatform model) =>
+      ServerPlatformDto(os: model.os, arch: model.arch, abi: model.abi);
 }
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
@@ -182,42 +213,20 @@ class CommandOutputDto {
 }
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
-class PushStartDto {
-  String serverId;
-  int sizeByByte;
-  String digest;
-
-  PushStartDto({
-    required this.serverId,
-    required this.sizeByByte,
-    required this.digest,
-  });
-
-  factory PushStartDto.fromJson(Map<String, dynamic> json) =>
-      _$PushStartDtoFromJson(json);
-
-  Map<String, dynamic> toJson() => _$PushStartDtoToJson(this);
-}
-
-@JsonSerializable(explicitToJson: true, includeIfNull: false)
-class PushUploadDto {
-  String serverId;
-  int percent;
-
-  PushUploadDto({required this.serverId, required this.percent});
-
-  factory PushUploadDto.fromJson(Map<String, dynamic> json) =>
-      _$PushUploadDtoFromJson(json);
-
-  Map<String, dynamic> toJson() => _$PushUploadDtoToJson(this);
-}
-
-@JsonSerializable(explicitToJson: true, includeIfNull: false)
 class PullInfoDto {
+  String registry;
+  String namespace;
   String name;
-  String? tag;
+  String version;
+  String? client;
 
-  PullInfoDto({required this.name, this.tag});
+  PullInfoDto({
+    this.registry = DEFAULT_REGISTRY,
+    required this.namespace,
+    required this.name,
+    required this.version,
+    this.client,
+  });
 
   factory PullInfoDto.fromJson(Map<String, dynamic> json) =>
       _$PullInfoDtoFromJson(json);
@@ -227,15 +236,10 @@ class PullInfoDto {
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
 class PullStartDto {
-  PullInfoDto pullInfoDto;
-  int sizeByByte;
-  String digest;
+  String stage;
+  String ref;
 
-  PullStartDto({
-    required this.pullInfoDto,
-    required this.sizeByByte,
-    required this.digest,
-  });
+  PullStartDto({required this.stage, required this.ref});
 
   factory PullStartDto.fromJson(Map<String, dynamic> json) =>
       _$PullStartDtoFromJson(json);
@@ -245,15 +249,57 @@ class PullStartDto {
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
 class PullDownloadDto {
-  PullInfoDto pullInfoDto;
-  int percent;
+  String stage;
+  int? downloadedBytes;
+  int? totalBytes;
+  int? percent;
+  String? digest;
 
-  PullDownloadDto({required this.pullInfoDto, required this.percent});
+  PullDownloadDto({
+    required this.stage,
+    this.downloadedBytes,
+    this.totalBytes,
+    this.percent,
+    this.digest,
+  });
 
   factory PullDownloadDto.fromJson(Map<String, dynamic> json) =>
       _$PullDownloadDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$PullDownloadDtoToJson(this);
+}
+
+@JsonSerializable(explicitToJson: true, includeIfNull: false)
+class PullDoneDto {
+  String stage;
+  OpenToolServerDto server;
+
+  PullDoneDto({this.stage = 'installed', required this.server});
+
+  factory PullDoneDto.fromJson(Map<String, dynamic> json) =>
+      _$PullDoneDtoFromJson(json);
+
+  Map<String, dynamic> toJson() => _$PullDoneDtoToJson(this);
+}
+
+@JsonSerializable(includeIfNull: false)
+class PullErrorDto {
+  String code;
+  String message;
+  bool retryable;
+  String? requestId;
+
+  PullErrorDto({
+    required this.code,
+    required this.message,
+    required this.retryable,
+    this.requestId,
+  });
+
+  factory PullErrorDto.fromJson(Map<String, dynamic> json) =>
+      _$PullErrorDtoFromJson(json);
+
+  Map<String, dynamic> toJson() => _$PullErrorDtoToJson(this);
 }
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:hive/hive.dart';
+import 'package:opentool_daemon/src/constants.dart';
 import 'package:opentool_daemon/src/service/server_service.dart';
 import 'package:opentool_daemon/src/storage/dao.dart';
 import 'package:opentool_daemon/src/storage/hive_storage.dart';
@@ -69,5 +70,32 @@ void main() {
       expect(stored, isNotNull);
       expect(stored!.alias, equals('0009'));
     });
+
+    test(
+      'migrates legacy native sources and persists artifact media type',
+      () async {
+        final box = Hive.box<ServerDao>('servers');
+        await box.put(
+          'legacy',
+          ServerDao(
+            id: 'legacy',
+            alias: 'legacy',
+            registry: 'native',
+            namespace: 'native',
+            name: 'demo',
+            version: '1.0.0',
+            internalId: 'internal',
+            artifactMediaType: 'application/vnd.opentool.ots',
+          ),
+        );
+
+        final migrated = await hiveServerStorage.get('legacy');
+
+        expect(migrated?.registry, LOCAL_REGISTRY);
+        expect(migrated?.namespace, LOCAL_NAMESPACE);
+        expect(migrated?.artifactMediaType, 'application/vnd.opentool.ots');
+        expect(box.get('legacy')?.registry, LOCAL_REGISTRY);
+      },
+    );
   });
 }

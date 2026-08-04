@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:hive/hive.dart';
 import 'package:opentool_daemon/src/utils/directory_util.dart';
 import 'package:path/path.dart' as p;
+import '../constants.dart';
 import 'dao.dart';
 import 'storage.dart';
 
@@ -13,7 +14,9 @@ class HiveInternalServerStorage implements Storage<InternalServerDao> {
   late Box<InternalServerDao> _box;
 
   Future<void> init() async {
-    Hive.registerAdapter(InternalServerDaoAdapter());
+    if (!Hive.isAdapterRegistered(0)) {
+      Hive.registerAdapter(InternalServerDaoAdapter());
+    }
 
     final dir = DirectoryUtil.getBaseDir();
     final hivePath = p.join(dir, DB_PATH);
@@ -56,20 +59,35 @@ class HiveServerStorage implements Storage<ServerDao> {
 
   late Box<ServerDao> _box;
 
+  bool _isLegacyLocal(ServerDao value) =>
+      value.registry == 'native' && value.namespace == 'native';
+
   ServerDao _detach(ServerDao serverDao, {required String id}) {
+    final legacyLocal = _isLegacyLocal(serverDao);
     return ServerDao(
       id: id,
       alias: serverDao.alias,
-      registry: serverDao.registry,
-      repo: serverDao.repo,
+      registry: legacyLocal ? LOCAL_REGISTRY : serverDao.registry,
+      namespace: legacyLocal ? LOCAL_NAMESPACE : serverDao.namespace,
       name: serverDao.name,
-      tag: serverDao.tag,
+      version: serverDao.version,
       internalId: serverDao.internalId,
+      artifactId: serverDao.artifactId,
+      versionDigest: serverDao.versionDigest,
+      artifactDigest: serverDao.artifactDigest,
+      artifactSize: serverDao.artifactSize,
+      platformOs: serverDao.platformOs,
+      platformArch: serverDao.platformArch,
+      platformAbi: serverDao.platformAbi,
+      installedAt: serverDao.installedAt,
+      artifactMediaType: serverDao.artifactMediaType,
     );
   }
 
   Future<void> init() async {
-    Hive.registerAdapter(ServerDaoAdapter());
+    if (!Hive.isAdapterRegistered(1)) {
+      Hive.registerAdapter(ServerDaoAdapter());
+    }
 
     final dir = DirectoryUtil.getBaseDir();
     final hivePath = p.join(dir, DB_PATH);
@@ -88,7 +106,7 @@ class HiveServerStorage implements Storage<ServerDao> {
   Future<ServerDao?> get(String id) async {
     final direct = _box.get(id);
     if (direct != null) {
-      if (direct.id != id) {
+      if (direct.id != id || _isLegacyLocal(direct)) {
         final repaired = _detach(direct, id: id);
         await _box.put(id, repaired);
         return _detach(repaired, id: id);
@@ -152,6 +170,12 @@ class HiveServerStorage implements Storage<ServerDao> {
         byId[id] = _detach(repaired, id: id);
         continue;
       }
+      if (_isLegacyLocal(serverDao)) {
+        final migrated = _detach(serverDao, id: id);
+        await _box.put(id, migrated);
+        byId[id] = _detach(migrated, id: id);
+        continue;
+      }
       byId[id] = _detach(serverDao, id: id);
     }
 
@@ -165,7 +189,9 @@ class HiveToolStorage implements Storage<ToolDao> {
   late Box<ToolDao> _box;
 
   Future<void> init() async {
-    Hive.registerAdapter(ToolDaoAdapter());
+    if (!Hive.isAdapterRegistered(2)) {
+      Hive.registerAdapter(ToolDaoAdapter());
+    }
 
     final dir = DirectoryUtil.getBaseDir();
     final hivePath = p.join(dir, DB_PATH);

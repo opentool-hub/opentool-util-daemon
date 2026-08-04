@@ -13,15 +13,19 @@ final Map<String, String> STREAM_HEADERS = {
   'Cache-Control': 'no-store',
 };
 
-const String DEFAULT_REGISTRY = "https://api.opentool-hub.com";
+const String DEFAULT_REGISTRY = "https://www.opentool-hub.com";
 const String OPENTOOL_FOLDER = ".opentool";
 String OPENTOOL_PATH =
     "${DirectoryUtil.getBaseDir()}${Platform.pathSeparator}${OPENTOOL_FOLDER}";
 
 const String SERVER_FOLDER = 'servers';
 const String TOOL_FOLDER = 'tools';
-const String NULL_REGISTRY = 'native';
-const String NULL_REPO = 'native';
+const String LOCAL_REGISTRY = 'local';
+const String LOCAL_NAMESPACE = 'local';
+@Deprecated('Use LOCAL_REGISTRY')
+const String NULL_REGISTRY = LOCAL_REGISTRY;
+@Deprecated('Use LOCAL_NAMESPACE')
+const String NULL_REPO = LOCAL_NAMESPACE;
 const String NULL_TAG = 'latest';
 
 const String OPENTOOL_FILE_NAME = 'Opentoolfile';

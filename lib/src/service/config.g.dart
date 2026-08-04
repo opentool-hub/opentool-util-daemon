@@ -17,13 +17,7 @@ OpentoolfileConfig _$OpentoolfileConfigFromJson(Map<String, dynamic> json) =>
     );
 
 Map<String, dynamic> _$OpentoolfileConfigToJson(OpentoolfileConfig instance) {
-  final val = <String, dynamic>{
-    'name': instance.name,
-    'os': instance.os,
-    'cpuArch': instance.cpuArch,
-    'build': instance.build.toJson(),
-    'run': instance.run.toJson(),
-  };
+  final val = <String, dynamic>{'name': instance.name};
 
   void writeNotNull(String key, dynamic value) {
     if (value != null) {
@@ -32,6 +26,10 @@ Map<String, dynamic> _$OpentoolfileConfigToJson(OpentoolfileConfig instance) {
   }
 
   writeNotNull('tag', instance.tag);
+  val['os'] = instance.os;
+  val['cpuArch'] = instance.cpuArch;
+  val['build'] = instance.build.toJson();
+  val['run'] = instance.run.toJson();
   return val;
 }
 
@@ -70,35 +68,3 @@ Map<String, dynamic> _$OpenToolRunToJson(OpenToolRun instance) =>
       'entrypoint': instance.entrypoint,
       'cmds': instance.cmds,
     };
-
-OpenToolConfig _$OpenToolConfigFromJson(Map<String, dynamic> json) =>
-    OpenToolConfig(
-      registry: json['registry'] as String?,
-      username: json['username'] as String?,
-      auth: json['auth'] == null
-          ? null
-          : HubAuth.fromJson(json['auth'] as Map<String, dynamic>),
-    );
-
-Map<String, dynamic> _$OpenToolConfigToJson(OpenToolConfig instance) {
-  final val = <String, dynamic>{};
-
-  void writeNotNull(String key, dynamic value) {
-    if (value != null) {
-      val[key] = value;
-    }
-  }
-
-  writeNotNull('registry', instance.registry);
-  writeNotNull('username', instance.username);
-  writeNotNull('auth', instance.auth?.toJson());
-  return val;
-}
-
-HubAuth _$HubAuthFromJson(Map<String, dynamic> json) =>
-    HubAuth(repo: json['repo'] as String, token: json['token'] as String);
-
-Map<String, dynamic> _$HubAuthToJson(HubAuth instance) => <String, dynamic>{
-  'repo': instance.repo,
-  'token': instance.token,
-};

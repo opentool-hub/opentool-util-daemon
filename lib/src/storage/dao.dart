@@ -25,26 +25,78 @@ class ServerDao extends HiveObject {
   String registry;
 
   @HiveField(3)
-  String repo;
+  String namespace;
 
   @HiveField(4)
   String name;
 
   @HiveField(5)
-  String tag;
+  String version;
 
   @HiveField(6)
   String internalId;
+
+  @HiveField(7)
+  String? artifactId;
+
+  @HiveField(8)
+  String? versionDigest;
+
+  @HiveField(9)
+  String? artifactDigest;
+
+  @HiveField(10)
+  int? artifactSize;
+
+  @HiveField(11)
+  String? platformOs;
+
+  @HiveField(12)
+  String? platformArch;
+
+  @HiveField(13)
+  String? platformAbi;
+
+  @HiveField(14)
+  DateTime? installedAt;
+
+  @HiveField(15)
+  String? artifactMediaType;
 
   ServerDao({
     required this.id,
     required this.alias,
     required this.registry,
-    required this.repo,
+    String? namespace,
+    @Deprecated('Use namespace') String? repo,
     required this.name,
-    required this.tag,
+    String? version,
+    @Deprecated('Use version') String? tag,
     required this.internalId,
-  });
+    this.artifactId,
+    this.versionDigest,
+    this.artifactDigest,
+    this.artifactSize,
+    this.platformOs,
+    this.platformArch,
+    this.platformAbi,
+    this.installedAt,
+    this.artifactMediaType,
+  }) : namespace =
+           namespace ?? repo ?? (throw ArgumentError.notNull('namespace')),
+       version = version ?? tag ?? (throw ArgumentError.notNull('version'));
+
+  @Deprecated('Use namespace')
+  String get repo => namespace;
+
+  @Deprecated('Use namespace')
+  set repo(String value) => namespace = value;
+
+  @Deprecated('Use version')
+  String get tag => version;
+
+  @Deprecated('Use version')
+  set tag(String value) => version = value;
 }
 
 @HiveType(typeId: 2)

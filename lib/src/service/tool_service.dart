@@ -299,7 +299,7 @@ class ToolService {
       LogModule.tool,
       "runServer.input",
       detail:
-          "serverId: ${server.id}, identity: $identity, hostType: $hostType",
+          "serverId: ${server.id}, identity: $identity, versionDigest: ${server.versionDigest}, artifactId: ${server.artifactId}, artifactDigest: ${server.artifactDigest}, hostType: $hostType",
     );
 
     final servers = await _serverLister?.call();
@@ -792,7 +792,12 @@ class ToolService {
     if (registry == null || repo == null || name == null || tag == null) {
       return null;
     }
-    return ServerIdentity(registry: registry, repo: repo, name: name, tag: tag);
+    return ServerIdentity(
+      registry: registry,
+      namespace: repo,
+      name: name,
+      version: tag,
+    );
   }
 
   void _applyIdentitySnapshot(ToolDao tool, ServerIdentity identity) {
@@ -816,9 +821,9 @@ class ToolService {
       final config = OpentoolfileConfig.fromJson(json);
       return ServerIdentity(
         registry: NULL_REGISTRY,
-        repo: NULL_REPO,
+        namespace: LOCAL_NAMESPACE,
         name: config.name,
-        tag: config.tag ?? NULL_TAG,
+        version: config.tag ?? NULL_TAG,
       );
     } catch (error, stackTrace) {
       logger.log(

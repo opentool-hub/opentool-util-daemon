@@ -2,37 +2,85 @@ import '../storage/dao.dart';
 
 class ServerIdentity {
   final String registry;
-  final String repo;
+  final String namespace;
   final String name;
-  final String tag;
+  final String version;
 
-  const ServerIdentity({
+  ServerIdentity({
     required this.registry,
-    required this.repo,
+    String? namespace,
+    @Deprecated('Use namespace') String? repo,
     required this.name,
-    required this.tag,
-  });
+    String? version,
+    @Deprecated('Use version') String? tag,
+  }) : namespace =
+           namespace ?? repo ?? (throw ArgumentError.notNull('namespace')),
+       version = version ?? tag ?? (throw ArgumentError.notNull('version'));
 
   factory ServerIdentity.fromServer(ServerModel server) => ServerIdentity(
     registry: server.registry,
-    repo: server.repo,
+    namespace: server.namespace,
     name: server.name,
-    tag: server.tag,
+    version: server.version,
   );
 
   @override
   bool operator ==(Object other) =>
       other is ServerIdentity &&
       registry == other.registry &&
-      repo == other.repo &&
+      namespace == other.namespace &&
       name == other.name &&
-      tag == other.tag;
+      version == other.version;
 
   @override
-  int get hashCode => Object.hash(registry, repo, name, tag);
+  int get hashCode => Object.hash(registry, namespace, name, version);
 
   @override
-  String toString() => '$registry/$repo/$name:$tag';
+  String toString() => '$registry/$namespace/$name:$version';
+
+  @Deprecated('Use namespace')
+  String get repo => namespace;
+
+  @Deprecated('Use version')
+  String get tag => version;
+}
+
+class ServerPlatform {
+  final String os;
+  final String arch;
+  final String abi;
+
+  const ServerPlatform({
+    required this.os,
+    required this.arch,
+    required this.abi,
+  });
+}
+
+class HubArtifactMetadata {
+  final String registry;
+  final String namespace;
+  final String name;
+  final String version;
+  final String versionDigest;
+  final String artifactId;
+  final String artifactDigest;
+  final String artifactMediaType;
+  final int artifactSize;
+  final ServerPlatform platform;
+
+  const HubArtifactMetadata({
+    required this.registry,
+    required this.namespace,
+    required this.name,
+    required this.version,
+    required this.versionDigest,
+    required this.artifactId,
+    required this.artifactDigest,
+    required this.artifactMediaType,
+    required this.artifactSize,
+    required this.platform,
+  });
 }
 
 class ToolStatusType {
@@ -69,53 +117,80 @@ class VersionModel {
   VersionModel({required this.name, required this.version});
 }
 
-class LoginInfoModel {
-  final String registry;
-  final String username;
-  final String password;
-
-  LoginInfoModel({
-    required this.registry,
-    required this.username,
-    required this.password,
-  });
-}
-
-class UserInfo {
-  String? registry;
-  String? username;
-
-  UserInfo({this.registry, this.username});
-}
-
 class ServerModel {
   String id;
   String alias;
   String registry;
-  String repo;
+  String namespace;
   String name;
-  String tag;
+  String version;
   String internalId;
+  String? artifactId;
+  String? versionDigest;
+  String? artifactDigest;
+  String? artifactMediaType;
+  int? artifactSize;
+  ServerPlatform? platform;
+  DateTime? installedAt;
 
   ServerModel({
     required this.id,
     required this.alias,
     required this.registry,
-    required this.repo,
+    String? namespace,
+    @Deprecated('Use namespace') String? repo,
     required this.name,
-    required this.tag,
+    String? version,
+    @Deprecated('Use version') String? tag,
     required this.internalId,
-  });
+    this.artifactId,
+    this.versionDigest,
+    this.artifactDigest,
+    this.artifactMediaType,
+    this.artifactSize,
+    this.platform,
+    this.installedAt,
+  }) : namespace =
+           namespace ?? repo ?? (throw ArgumentError.notNull('namespace')),
+       version = version ?? tag ?? (throw ArgumentError.notNull('version'));
+
+  @Deprecated('Use namespace')
+  String get repo => namespace;
+
+  @Deprecated('Use namespace')
+  set repo(String value) => namespace = value;
+
+  @Deprecated('Use version')
+  String get tag => version;
+
+  @Deprecated('Use version')
+  set tag(String value) => version = value;
 
   factory ServerModel.fromDao(ServerDao dao) {
     return ServerModel(
       id: dao.id,
       alias: dao.alias,
       registry: dao.registry,
-      repo: dao.repo,
+      namespace: dao.namespace,
       name: dao.name,
-      tag: dao.tag,
+      version: dao.version,
       internalId: dao.internalId,
+      artifactId: dao.artifactId,
+      versionDigest: dao.versionDigest,
+      artifactDigest: dao.artifactDigest,
+      artifactMediaType: dao.artifactMediaType,
+      artifactSize: dao.artifactSize,
+      platform:
+          dao.platformOs == null ||
+              dao.platformArch == null ||
+              dao.platformAbi == null
+          ? null
+          : ServerPlatform(
+              os: dao.platformOs!,
+              arch: dao.platformArch!,
+              abi: dao.platformAbi!,
+            ),
+      installedAt: dao.installedAt,
     );
   }
 
@@ -124,10 +199,19 @@ class ServerModel {
       id: id,
       alias: alias,
       registry: registry,
-      repo: repo,
+      namespace: namespace,
       name: name,
-      tag: tag,
+      version: version,
       internalId: internalId,
+      artifactId: artifactId,
+      versionDigest: versionDigest,
+      artifactDigest: artifactDigest,
+      artifactMediaType: artifactMediaType,
+      artifactSize: artifactSize,
+      platformOs: platform?.os,
+      platformArch: platform?.arch,
+      platformAbi: platform?.abi,
+      installedAt: installedAt,
     );
   }
 
@@ -173,7 +257,12 @@ class ToolModel {
     if (registry == null || repo == null || name == null || tag == null) {
       return null;
     }
-    return ServerIdentity(registry: registry, repo: repo, name: name, tag: tag);
+    return ServerIdentity(
+      registry: registry,
+      namespace: repo,
+      name: name,
+      version: tag,
+    );
   }
 
   factory ToolModel.fromDao(ToolDao dao) {

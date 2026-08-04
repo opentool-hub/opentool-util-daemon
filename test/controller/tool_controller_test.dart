@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:opentool_daemon/src/constants.dart';
 import 'package:opentool_daemon/src/controller/tool_controller.dart';
-import 'package:opentool_daemon/src/service/config.dart';
 import 'package:opentool_daemon/src/service/manage_service.dart';
 import 'package:opentool_daemon/src/service/model.dart';
 import 'package:opentool_dart/opentool_client.dart';
@@ -80,7 +79,6 @@ void main() {
         dataDir: tempDir.path,
         apiKeyStorage: apiKeyStorage,
       );
-      manageService.currConfig = OpenToolConfig();
       adminApiKey = (await manageService.createApiKey(name: 'ops')).apiKey;
       controller = ToolController(toolService, serverService, manageService);
     });

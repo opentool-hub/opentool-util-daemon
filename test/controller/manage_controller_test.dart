@@ -15,7 +15,6 @@ void main() {
     setUp(() {
       manageService = FakeManageService(
         versionModel: VersionModel(name: 'opentool-daemon', version: '1.2.3'),
-        userInfo: UserInfo(registry: 'hub.local', username: 'agent'),
       );
       controller = ManageController(manageService);
     });
@@ -33,57 +32,6 @@ void main() {
       );
       expect(dto.version, equals('1.2.3'));
       expect(dto.name, equals('opentool-daemon'));
-    });
-
-    test(
-      'accepts login credentials and mirrors them in the response DTO',
-      () async {
-        final loginDto = LoginInfoDto(
-          username: 'agent',
-          password: 'secret',
-          registry: 'hub.local',
-        );
-        final request = Request(
-          'POST',
-          Uri.parse('http://localhost/opentool-daemon/opentool-hub/login'),
-          body: jsonEncode(loginDto.toJson()),
-        );
-
-        final response = await controller.login(request);
-
-        expect(manageService.lastLogin!.username, equals('agent'));
-        expect(manageService.lastLogin!.password, equals('secret'));
-
-        final dto = LoginResultDto.fromJson(
-          jsonDecode(await response.readAsString()) as Map<String, dynamic>,
-        );
-        expect(dto.registry, equals('hub.local'));
-        expect(dto.username, equals('agent'));
-      },
-    );
-
-    test('exposes user info and clears state on logout', () async {
-      final getUserRequest = Request(
-        'GET',
-        Uri.parse('http://localhost/opentool-daemon/opentool-hub/user'),
-      );
-      final response = await controller.getUserInfo(getUserRequest);
-      final dto = UserInfoDto.fromJson(
-        jsonDecode(await response.readAsString()) as Map<String, dynamic>,
-      );
-
-      expect(dto.username, equals('agent'));
-
-      final logoutRequest = Request(
-        'POST',
-        Uri.parse('http://localhost/opentool-daemon/opentool-hub/logout'),
-      );
-      final logoutResponse = await controller.logout(logoutRequest);
-      final logoutDto = UserInfoDto.fromJson(
-        jsonDecode(await logoutResponse.readAsString()) as Map<String, dynamic>,
-      );
-      expect(logoutDto.registry, equals('hub.local'));
-      expect(manageService.userInfo.username, isNull);
     });
 
     test(
@@ -117,35 +65,14 @@ void main() {
 
 class FakeManageService extends ManageService {
   VersionModel versionModel;
-  UserInfo userInfo;
-  LoginInfoModel? lastLogin;
   ApiKeyModel? nextApiKey;
   String? lastCreateApiKeyName;
   String? lastSudoToken;
 
-  FakeManageService({required this.versionModel, required this.userInfo})
-    : super('test-version');
+  FakeManageService({required this.versionModel}) : super('test-version');
 
   @override
   Future<VersionModel> getVersion() async => versionModel;
-
-  @override
-  Future<void> login(LoginInfoModel loginInfoModel) async {
-    lastLogin = loginInfoModel;
-  }
-
-  @override
-  Future<UserInfo> getUserInfo() async => userInfo;
-
-  @override
-  Future<UserInfo> logout() async {
-    final previous = UserInfo(
-      registry: userInfo.registry,
-      username: userInfo.username,
-    );
-    userInfo = UserInfo();
-    return previous;
-  }
 
   @override
   Future<ApiKeyModel> createApiKey({String? name}) async {

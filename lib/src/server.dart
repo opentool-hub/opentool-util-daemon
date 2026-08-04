@@ -14,6 +14,7 @@ import 'controller/manage_controller.dart';
 import 'controller/tool_controller.dart';
 import 'router.dart';
 import 'service/tool_service.dart';
+import 'service/hub_install_service.dart';
 import 'storage/cache_storage.dart';
 
 class DaemonServer {
@@ -51,13 +52,21 @@ class DaemonServer {
       toolStorage: cacheToolStorage,
       onServersChanged: toolService.repairServerAssociations,
     );
+    await serverService.reconcileInstallations();
     await toolService.repairServerAssociations(await serverService.list());
     ManageService manageService = ManageService(version);
+    final allowInsecureHub =
+        Platform.environment['OPENTOOL_ALLOW_INSECURE_HUB'] == 'true';
+    final hubInstallService = HubInstallService(
+      serverService: serverService,
+      daemonVersion: version,
+      allowInsecureHub: allowInsecureHub,
+    );
 
     ManageController manageController = ManageController(manageService);
     ServerController serverController = ServerController(
       serverService,
-      manageService,
+      hubInstallService: hubInstallService,
     );
     ToolController toolController = ToolController(
       toolService,
@@ -90,8 +99,8 @@ class DaemonServer {
       toolService
           .refreshStatusesOnStartup(autoRestore: config.autoRestore)
           .catchError((e, st) {
-        print("refreshStatusesOnStartup error: $e\n$st");
-      }),
+            print("refreshStatusesOnStartup error: $e\n$st");
+          }),
     );
   }
 
