@@ -163,9 +163,8 @@ x-opentool-sudo-token: <temp-token>
 
 SSE 阶段依次为 `resolving`、`waiting`、`downloading`、`verifying`、`importing`、`installed`。只有制品完成摘要与大小校验并写入本地数据库后才会发送 `done`；失败通过 `error` 事件返回稳定错误码、可重试标记和可选 `requestId`。
 
-Registry 与 Artifact URL 必须使用 HTTPS；`localhost`、`127.0.0.1` 等 loopback
-地址会自动允许 HTTP。`OPENTOOL_ALLOW_INSECURE_HUB=true` 仅用于隔离开发测试中需要
-访问其他 HTTP 主机的情况。
+Registry 与 Artifact URL 均支持 HTTP 和 HTTPS。跨越不可信网络时应使用 HTTPS，
+因为 HTTP 不提供传输机密性与完整性保护。
 
 #### 本地 Hub 联调
 
@@ -192,9 +191,8 @@ Registry 与 Artifact URL 必须使用 HTTPS；`localhost`、`127.0.0.1` 等 loo
    ```
 
    先通过本地 Hub Web/CLI 发布与 daemon 当前平台匹配的 `.ots`，再把 pull 请求的
-   `registry` 设为 `http://127.0.0.1:8080`。loopback HTTP 自动允许，不需要设置
-   `OPENTOOL_ALLOW_INSECURE_HUB`；如果 Hub 在另一台局域网机器的 HTTP 地址上，才需
-   显式设置该变量。内存模式重启后发布数据会丢失。
+   `registry` 设为 `http://127.0.0.1:8080`，无需额外开关。内存模式重启后发布数据
+   会丢失。
 
 生产域名部署属于上线验收条件，不作为本地代码和契约测试的阻塞项。
 

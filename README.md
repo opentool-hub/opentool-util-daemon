@@ -174,10 +174,8 @@ The request body selects an exact immutable Hub version. The daemon detects the 
 
 SSE stages are `resolving`, `waiting`, `downloading`, `verifying`, `importing`, and `installed`. An `error` event contains `code`, `message`, `retryable`, and an optional Hub `requestId`. A `done` event is emitted only after the verified `.ots` and all source metadata have been persisted.
 
-Registry and artifact URLs must use HTTPS. Plain HTTP is accepted automatically
-only for loopback hosts such as `localhost` and `127.0.0.1`; the
-`OPENTOOL_ALLOW_INSECURE_HUB=true` escape hatch is intended only for isolated
-development tests involving other hosts.
+Registry and artifact URLs may use HTTP or HTTPS. Use HTTPS across untrusted
+networks because HTTP does not provide transport confidentiality or integrity.
 
 #### Local Hub debugging
 
@@ -207,10 +205,8 @@ but that does not block local development. Two workflows are supported:
    ```
 
    Publish an `.ots` matching the daemon platform through the local Hub Web/CLI,
-   then use `http://127.0.0.1:8080` as the pull registry. Loopback HTTP is
-   allowed automatically. Set `OPENTOOL_ALLOW_INSECURE_HUB=true` only when the
-   local Hub uses an HTTP address on another LAN host. In-memory publications
-   are lost when the Hub process restarts.
+   then use `http://127.0.0.1:8080` as the pull registry. HTTP needs no extra
+   feature flag. In-memory publications are lost when the Hub process restarts.
 
 Production-domain deployment is a release acceptance condition, not a blocker
 for local implementation and contract tests.

@@ -16,6 +16,54 @@ import 'package:test/test.dart';
 import '../test_doubles.dart';
 
 void main() {
+  test('maps deprecated Hub versions to a stable install error', () async {
+    final httpServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final registry = 'http://${httpServer.address.host}:${httpServer.port}';
+    final serving = httpServer.listen((request) async {
+      request.response.statusCode = HttpStatus.conflict;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({
+          'error': {
+            'code': 'VERSION_DEPRECATED',
+            'message': 'Version is deprecated and cannot be installed',
+            'requestId': 'req-deprecated',
+          },
+        }),
+      );
+      await request.response.close();
+    });
+    try {
+      final service = HubInstallService(
+        serverService: ServerService(
+          StubHiveServerStorage(),
+          StubHiveInternalServerStorage(),
+        ),
+        daemonVersion: 'test',
+      );
+      await expectLater(
+        service.install(
+          HubInstallRequest.validate(
+            registry: registry,
+            namespace: 'litevar',
+            name: 'deprecated-demo',
+            version: '1.0.0',
+            client: 'embedded',
+          ),
+          onEvent: (_) {},
+        ),
+        throwsA(
+          isA<InstallException>()
+              .having((error) => error.code, 'code', 'TOOL_VERSION_DEPRECATED')
+              .having((error) => error.retryable, 'retryable', isFalse),
+        ),
+      );
+    } finally {
+      await httpServer.close(force: true);
+      await serving.cancel();
+    }
+  });
+
   test('pull resolves, verifies, installs, and reuses one artifact', () async {
     final originalOpenToolPath = OPENTOOL_PATH;
     final temp = await Directory.systemTemp.createTemp('hub_install_test_');

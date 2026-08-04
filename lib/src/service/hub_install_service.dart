@@ -9,6 +9,7 @@ import '../utils/logger.dart';
 import '../utils/platform_detector.dart';
 import 'artifact_downloader.dart';
 import 'exception.dart';
+import 'install_cancellation.dart';
 import 'model.dart';
 import 'server_service.dart';
 
@@ -33,7 +34,6 @@ class HubInstallRequest {
     required String name,
     required String version,
     String? client,
-    bool allowInsecureHub = false,
   }) {
     final normalizedNamespace = namespace.trim().toLowerCase();
     final normalizedName = name.trim().toLowerCase();
@@ -61,7 +61,6 @@ class HubInstallRequest {
     }
     final canonicalRegistry = HubClient.canonicalizeRegistry(
       registry,
-      allowInsecure: allowInsecureHub,
     ).toString();
     return HubInstallRequest(
       registry: canonicalRegistry,
@@ -97,26 +96,18 @@ class HubInstallService {
     PlatformDetector? platformDetector,
     ArtifactDownloader? downloader,
     HubClientFactory? hubClientFactory,
-    bool allowInsecureHub = false,
   }) : platformDetector = platformDetector ?? PlatformDetector(),
-       downloader =
-           downloader ??
-           ArtifactDownloader(
-             dataDir: OPENTOOL_PATH,
-             allowInsecureDownload: allowInsecureHub,
-           ),
+       downloader = downloader ?? ArtifactDownloader(dataDir: OPENTOOL_PATH),
        _hubClientFactory =
            hubClientFactory ??
-           ((registry) => HubClient(
-             registry,
-             daemonVersion: daemonVersion,
-             allowInsecureHub: allowInsecureHub,
-           ));
+           ((registry) => HubClient(registry, daemonVersion: daemonVersion));
 
   Future<ServerModel> install(
     HubInstallRequest request, {
     required void Function(HubInstallEvent event) onEvent,
+    InstallCancellationToken? cancellation,
   }) async {
+    _ensureNotCancelled(cancellation);
     final platform = await platformDetector.detect();
     final key = [
       request.registry,
@@ -134,9 +125,10 @@ class HubInstallService {
         HubInstallEvent('start', {'stage': 'resolving', 'ref': request.ref}),
       );
       late Future<ServerModel> created;
-      created = _performInstall(request, platform, onEvent).whenComplete(() {
-        if (identical(_inFlight[key], created)) _inFlight.remove(key);
-      });
+      created = _performInstall(request, platform, onEvent, cancellation)
+          .whenComplete(() {
+            if (identical(_inFlight[key], created)) _inFlight.remove(key);
+          });
       _inFlight[key] = created;
       task = created;
     } else {
@@ -146,6 +138,7 @@ class HubInstallService {
     }
 
     final server = await task;
+    _ensureNotCancelled(cancellation);
     onEvent(
       HubInstallEvent('done', {
         'stage': 'installed',
@@ -159,6 +152,7 @@ class HubInstallService {
     HubInstallRequest request,
     ServerPlatform platform,
     void Function(HubInstallEvent event) onEvent,
+    InstallCancellationToken? cancellation,
   ) async {
     String? downloadedPath;
     try {
@@ -170,7 +164,9 @@ class HubInstallService {
         arch: platform.arch,
         abi: platform.abi,
         client: request.client,
+        cancellation: cancellation,
       );
+      _ensureNotCancelled(cancellation);
       _validateResolve(request, platform, resolved);
       logger.log(
         LogModule.server,
@@ -216,7 +212,9 @@ class HubInstallService {
             'digest': resolved.artifact.digest,
           }),
         ),
+        cancellation: cancellation,
       );
+      _ensureNotCancelled(cancellation);
       final installed = await serverService.installHubArtifact(
         downloadedPath,
         HubArtifactMetadata(
@@ -241,6 +239,12 @@ class HubInstallService {
             'serverId: ${installed.id}, versionDigest: ${installed.versionDigest}, artifactId: ${installed.artifactId}, artifactDigest: ${installed.artifactDigest}',
       );
       return installed;
+    } on InstallCancelledException {
+      throw const InstallException(
+        code: 'INSTALL_CANCELLED',
+        message: 'Installation was cancelled',
+        retryable: false,
+      );
     } on HubApiException catch (error) {
       throw _mapHubError(error);
     } finally {
@@ -287,6 +291,8 @@ class HubInstallService {
 
   InstallException _mapHubError(HubApiException error) {
     final code = switch (error.code) {
+      'INSTALL_CANCELLED' => 'INSTALL_CANCELLED',
+      'VERSION_DEPRECATED' => 'TOOL_VERSION_DEPRECATED',
       'TOOL_NOT_FOUND' ||
       'VERSION_NOT_FOUND' ||
       'VERSION_NOT_PUBLISHED' ||
@@ -300,6 +306,16 @@ class HubInstallService {
       retryable: error.retryable,
       requestId: error.requestId,
     );
+  }
+
+  void _ensureNotCancelled(InstallCancellationToken? cancellation) {
+    if (cancellation?.isCancelled ?? false) {
+      throw const InstallException(
+        code: 'INSTALL_CANCELLED',
+        message: 'Installation was cancelled',
+        retryable: false,
+      );
+    }
   }
 
   Map<String, dynamic> _serverJson(ServerModel server) => {

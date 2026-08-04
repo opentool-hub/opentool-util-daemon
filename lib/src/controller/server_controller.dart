@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:opentool_dart/opentool_client.dart';
 import 'package:opentool_daemon/opentool_daemon_utils.dart';
@@ -8,6 +7,7 @@ import 'package:shelf/shelf.dart';
 import '../service/model.dart';
 import '../service/exception.dart';
 import '../service/hub_install_service.dart';
+import '../service/install_cancellation.dart';
 import '../service/server_service.dart';
 import '../constants.dart';
 import 'dto.dart';
@@ -166,8 +166,6 @@ class ServerController {
         name: dto.name,
         version: dto.version,
         client: dto.client,
-        allowInsecureHub:
-            Platform.environment['OPENTOOL_ALLOW_INSECURE_HUB'] == 'true',
       );
     } catch (error) {
       return Response.badRequest(
@@ -186,32 +184,42 @@ class ServerController {
       detail: "ref: ${installRequest.ref}",
       level: Level.FINE,
     );
-    final streamController = StreamController<List<int>>();
+    final cancellation = InstallCancellationToken();
+    late final StreamController<List<int>> streamController;
+    streamController = StreamController<List<int>>(
+      onCancel: cancellation.cancel,
+    );
     scheduleMicrotask(() async {
       try {
         await service.install(
           installRequest,
-          onEvent: (event) => _pushData(
-            streamController,
-            event.event,
-            jsonEncode(event.data),
-            logMessage: 'pullServer.push',
-          ),
+          cancellation: cancellation,
+          onEvent: (event) {
+            if (!cancellation.isCancelled) {
+              _pushData(
+                streamController,
+                event.event,
+                jsonEncode(event.data),
+                logMessage: 'pullServer.push',
+              );
+            }
+          },
         );
       } on InstallException catch (error) {
-        _pushData(
-          streamController,
-          EventType.ERROR,
-          jsonEncode(
-            PullErrorDto(
-              code: error.code,
-              message: error.message,
-              retryable: error.retryable,
-              requestId: error.requestId,
-            ).toJson(),
-          ),
-          logMessage: 'pullServer.error',
-        );
+        if (!cancellation.isCancelled)
+          _pushData(
+            streamController,
+            EventType.ERROR,
+            jsonEncode(
+              PullErrorDto(
+                code: error.code,
+                message: error.message,
+                retryable: error.retryable,
+                requestId: error.requestId,
+              ).toJson(),
+            ),
+            logMessage: 'pullServer.error',
+          );
       } catch (error, stackTrace) {
         logger.log(
           LogModule.server,
@@ -219,19 +227,20 @@ class ServerController {
           detail: '$error\n$stackTrace',
           level: Level.WARNING,
         );
-        _pushData(
-          streamController,
-          EventType.ERROR,
-          jsonEncode(
-            PullErrorDto(
-              code: 'INSTALL_FAILED',
-              message: 'OpenTool installation failed',
-              retryable: true,
-            ).toJson(),
-          ),
-        );
+        if (!cancellation.isCancelled)
+          _pushData(
+            streamController,
+            EventType.ERROR,
+            jsonEncode(
+              PullErrorDto(
+                code: 'INSTALL_FAILED',
+                message: 'OpenTool installation failed',
+                retryable: true,
+              ).toJson(),
+            ),
+          );
       } finally {
-        await streamController.close();
+        if (!streamController.isClosed) await streamController.close();
       }
     });
 
@@ -312,6 +321,7 @@ class ServerController {
     String dataString, {
     String? logMessage,
   }) {
+    if (streamController.isClosed) return;
     logger.log(
       LogModule.sse,
       logMessage ?? "server.pushData",

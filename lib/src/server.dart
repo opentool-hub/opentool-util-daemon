@@ -55,12 +55,9 @@ class DaemonServer {
     await serverService.reconcileInstallations();
     await toolService.repairServerAssociations(await serverService.list());
     ManageService manageService = ManageService(version);
-    final allowInsecureHub =
-        Platform.environment['OPENTOOL_ALLOW_INSECURE_HUB'] == 'true';
     final hubInstallService = HubInstallService(
       serverService: serverService,
       daemonVersion: version,
-      allowInsecureHub: allowInsecureHub,
     );
 
     ManageController manageController = ManageController(manageService);

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:opentool_daemon/src/controller/server_controller.dart';
 import 'package:opentool_daemon/src/service/artifact_downloader.dart';
 import 'package:opentool_daemon/src/service/hub_install_service.dart';
+import 'package:opentool_daemon/src/service/install_cancellation.dart';
 import 'package:opentool_daemon/src/service/model.dart';
 import 'package:opentool_daemon/src/service/server_service.dart';
 import 'package:shelf/shelf.dart';
@@ -138,11 +139,52 @@ void main() {
       expect(response.statusCode, 400);
       expect(await response.readAsString(), contains('INVALID_PULL_REQUEST'));
     });
+
+    test(
+      'pullServer cancels installation when the SSE client disconnects',
+      () async {
+        final release = Completer<void>();
+        final hubService = _ControlledHubInstallService(
+          serverService,
+          release.future,
+        );
+        controller = ServerController(
+          serverService,
+          hubInstallService: hubService,
+        );
+        final response = await controller.pullServer(
+          Request(
+            'POST',
+            Uri.parse('http://localhost/opentool-daemon/servers/pull'),
+            body: jsonEncode({
+              'registry': 'http://127.0.0.1:8080',
+              'namespace': 'litevar',
+              'name': 'demo',
+              'version': '1.2.3',
+              'client': 'embedded',
+            }),
+          ),
+        );
+
+        final firstChunk = Completer<void>();
+        final subscription = response.read().listen((_) {
+          if (!firstChunk.isCompleted) firstChunk.complete();
+        });
+        await firstChunk.future;
+        await subscription.cancel();
+        await expectLater(
+          hubService.cancelled.future.timeout(const Duration(seconds: 1)),
+          completes,
+        );
+        release.complete();
+      },
+    );
   });
 }
 
 class _ControlledHubInstallService extends HubInstallService {
   final Future<void> release;
+  final Completer<void> cancelled = Completer<void>();
 
   _ControlledHubInstallService(ServerService serverService, this.release)
     : super(
@@ -155,7 +197,11 @@ class _ControlledHubInstallService extends HubInstallService {
   Future<ServerModel> install(
     HubInstallRequest request, {
     required void Function(HubInstallEvent event) onEvent,
+    InstallCancellationToken? cancellation,
   }) async {
+    cancellation?.onCancel(() {
+      if (!cancelled.isCompleted) cancelled.complete();
+    });
     onEvent(
       HubInstallEvent('start', {'stage': 'resolving', 'ref': request.ref}),
     );

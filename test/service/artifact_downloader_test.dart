@@ -3,10 +3,59 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:opentool_daemon/src/service/artifact_downloader.dart';
 import 'package:opentool_daemon/src/service/exception.dart';
+import 'package:opentool_daemon/src/service/install_cancellation.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  test('cancels an in-flight download and removes the partial file', () async {
+    final stopwatch = Stopwatch()..start();
+    final temp = await Directory.systemTemp.createTemp('downloader_cancel_');
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final serving = server.listen((request) async {
+      request.response.bufferOutput = false;
+      request.response.add([1]);
+      await request.response.flush();
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        try {
+          request.response.add([2]);
+          await request.response.flush();
+        } catch (_) {
+          return;
+        }
+      }
+      await request.response.close();
+    });
+    final cancellation = InstallCancellationToken();
+    try {
+      await expectLater(
+        ArtifactDownloader(dataDir: temp.path).download(
+          downloadUrl: 'http://${server.address.host}:${server.port}/artifact',
+          expectedSize: 100,
+          expectedDigest: 'sha256:${List.filled(64, '0').join()}',
+          onProgress: (_, _) => cancellation.cancel(),
+          onVerifying: () {},
+          cancellation: cancellation,
+        ),
+        throwsA(
+          isA<InstallException>().having(
+            (error) => error.code,
+            'code',
+            'INSTALL_CANCELLED',
+          ),
+        ),
+      );
+      final downloads = Directory(p.join(temp.path, 'downloads'));
+      expect(await downloads.list().toList(), isEmpty);
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 1)));
+    } finally {
+      await server.close(force: true);
+      await serving.cancel();
+      await temp.delete(recursive: true);
+    }
+  });
+
   test(
     'downloads through a safe redirect and verifies size and digest',
     () async {
@@ -72,10 +121,7 @@ void main() {
         await request.response.close();
       });
       try {
-        final downloader = ArtifactDownloader(
-          dataDir: temp.path,
-          allowInsecureDownload: true,
-        );
+        final downloader = ArtifactDownloader(dataDir: temp.path);
         await expectLater(
           downloader.download(
             downloadUrl:

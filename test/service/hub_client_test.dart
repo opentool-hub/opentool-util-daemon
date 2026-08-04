@@ -15,7 +15,7 @@ void main() {
       expect(uri.toString(), 'https://example.com/base');
     });
 
-    test('allows loopback HTTP without enabling arbitrary insecure hosts', () {
+    test('allows HTTP and HTTPS registries', () {
       expect(
         HubClient.canonicalizeRegistry('http://LOCALHOST:8080/').toString(),
         'http://localhost:8080',
@@ -24,26 +24,23 @@ void main() {
         HubClient.canonicalizeRegistry('http://127.0.0.1:8080').toString(),
         'http://127.0.0.1:8080',
       );
+      expect(
+        HubClient.canonicalizeRegistry('http://hub.example').toString(),
+        'http://hub.example',
+      );
     });
 
-    test('rejects credentials, query strings, and insecure registries', () {
+    test('rejects credentials, query strings, and unsupported schemes', () {
       for (final value in [
         'https://user:secret@hub.example',
         'https://hub.example?token=secret',
-        'http://hub.example',
+        'ftp://hub.example',
       ]) {
         expect(
           () => HubClient.canonicalizeRegistry(value),
           throwsFormatException,
         );
       }
-      expect(
-        HubClient.canonicalizeRegistry(
-          'http://hub.example',
-          allowInsecure: true,
-        ).toString(),
-        'http://hub.example',
-      );
     });
   });
 
@@ -78,20 +75,15 @@ void main() {
       });
       try {
         final base = 'http://${server.address.host}:${server.port}/api/';
-        final result =
-            await HubClient(
-              base,
-              daemonVersion: '0.3.0',
-              allowInsecureHub: true,
-            ).resolve(
-              namespace: 'litevar',
-              name: 'demo',
-              version: '1.2.3',
-              os: 'linux',
-              arch: 'x64',
-              abi: 'glibc',
-              client: 'cli',
-            );
+        final result = await HubClient(base, daemonVersion: '0.3.0').resolve(
+          namespace: 'litevar',
+          name: 'demo',
+          version: '1.2.3',
+          os: 'linux',
+          arch: 'x64',
+          abi: 'glibc',
+          client: 'cli',
+        );
 
         expect(
           observed?.uri.path,
@@ -129,10 +121,7 @@ void main() {
       await request.response.close();
     });
     try {
-      final client = HubClient(
-        'http://${server.address.host}:${server.port}',
-        allowInsecureHub: true,
-      );
+      final client = HubClient('http://${server.address.host}:${server.port}');
       await expectLater(
         client.resolve(
           namespace: 'litevar',
@@ -169,7 +158,6 @@ void main() {
       try {
         final client = HubClient(
           'http://${server.address.host}:${server.port}',
-          allowInsecureHub: true,
         );
         await expectLater(
           client.resolve(

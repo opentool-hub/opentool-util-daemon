@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -6,24 +7,13 @@ import 'package:path/path.dart' as p;
 import 'package:unique_id_dart/unique_id_dart.dart';
 
 import 'exception.dart';
+import 'install_cancellation.dart';
 
 class ArtifactDownloader {
-  final Dio _dio;
+  final Dio? _providedDio;
   final String dataDir;
-  final bool allowInsecureDownload;
 
-  ArtifactDownloader({
-    required this.dataDir,
-    Dio? dio,
-    this.allowInsecureDownload = false,
-  }) : _dio =
-           dio ??
-           Dio(
-             BaseOptions(
-               connectTimeout: const Duration(seconds: 10),
-               receiveTimeout: const Duration(minutes: 5),
-             ),
-           );
+  ArtifactDownloader({required this.dataDir, Dio? dio}) : _providedDio = dio;
 
   Future<String> download({
     required String downloadUrl,
@@ -31,7 +21,9 @@ class ArtifactDownloader {
     required String expectedDigest,
     required void Function(int downloadedBytes, int totalBytes) onProgress,
     required void Function() onVerifying,
+    InstallCancellationToken? cancellation,
   }) async {
+    cancellation?.throwIfCancelled();
     final uri = Uri.tryParse(downloadUrl);
     if (uri == null || !_isAllowedUri(uri)) {
       throw const InstallException(
@@ -53,9 +45,23 @@ class ArtifactDownloader {
     final partFile = File(p.join(downloadDirectory.path, '${uniqueId()}.part'));
     IOSink? sink;
     var completed = false;
+    final dio =
+        _providedDio ??
+        Dio(
+          BaseOptions(
+            connectTimeout: const Duration(seconds: 10),
+            receiveTimeout: const Duration(minutes: 5),
+          ),
+        );
+    final cancelToken = CancelToken();
+    final removeCancelListener = cancellation?.onCancel(() {
+      cancelToken.cancel('Installation was cancelled');
+      dio.close(force: true);
+    });
     try {
       await downloadDirectory.create(recursive: true);
-      final response = await _getFollowingSafeRedirects(uri);
+      cancellation?.throwIfCancelled();
+      final response = await _getFollowingSafeRedirects(dio, uri, cancelToken);
       final body = response.data;
       if (body == null) {
         throw const InstallException(
@@ -66,18 +72,35 @@ class ArtifactDownloader {
       }
       sink = partFile.openWrite(mode: FileMode.writeOnly);
       var downloaded = 0;
-      await for (final chunk in body.stream) {
-        downloaded += chunk.length;
-        if (downloaded > expectedSize) {
-          throw InstallException(
-            code: 'ARTIFACT_SIZE_MISMATCH',
-            message:
-                'Downloaded artifact is larger than the Hub metadata ($expectedSize bytes)',
-            retryable: true,
-          );
+      final iterator = StreamIterator<List<int>>(body.stream);
+      final removeBodyCancelListener = cancellation?.onCancel(
+        () => unawaited(iterator.cancel()),
+      );
+      try {
+        while (await iterator.moveNext()) {
+          cancellation?.throwIfCancelled();
+          final chunk = iterator.current;
+          downloaded += chunk.length;
+          if (downloaded > expectedSize) {
+            throw InstallException(
+              code: 'ARTIFACT_SIZE_MISMATCH',
+              message:
+                  'Downloaded artifact is larger than the Hub metadata ($expectedSize bytes)',
+              retryable: true,
+            );
+          }
+          sink.add(chunk);
+          onProgress(downloaded, expectedSize);
+          cancellation?.throwIfCancelled();
         }
-        sink.add(chunk);
-        onProgress(downloaded, expectedSize);
+        cancellation?.throwIfCancelled();
+      } finally {
+        removeBodyCancelListener?.call();
+        if (cancellation?.isCancelled ?? false) {
+          unawaited(iterator.cancel());
+        } else {
+          await iterator.cancel();
+        }
       }
       await sink.flush();
       await sink.close();
@@ -92,7 +115,9 @@ class ArtifactDownloader {
         );
       }
       onVerifying();
+      cancellation?.throwIfCancelled();
       final digest = await sha256.bind(partFile.openRead()).first;
+      cancellation?.throwIfCancelled();
       final actualDigest = 'sha256:$digest';
       if (actualDigest != expectedDigest) {
         throw const InstallException(
@@ -103,6 +128,12 @@ class ArtifactDownloader {
       }
       completed = true;
       return partFile.path;
+    } on InstallCancelledException {
+      throw const InstallException(
+        code: 'INSTALL_CANCELLED',
+        message: 'Installation was cancelled',
+        retryable: false,
+      );
     } on InstallException {
       rethrow;
     } on FileSystemException catch (error) {
@@ -112,12 +143,26 @@ class ArtifactDownloader {
         retryable: true,
       );
     } on IOException {
+      if (cancellation?.isCancelled ?? false) {
+        throw const InstallException(
+          code: 'INSTALL_CANCELLED',
+          message: 'Installation was cancelled',
+          retryable: false,
+        );
+      }
       throw const InstallException(
         code: 'ARTIFACT_DOWNLOAD_FAILED',
         message: 'Artifact download was interrupted',
         retryable: true,
       );
     } on DioException catch (error) {
+      if ((cancellation?.isCancelled ?? false) || CancelToken.isCancel(error)) {
+        throw const InstallException(
+          code: 'INSTALL_CANCELLED',
+          message: 'Installation was cancelled',
+          retryable: false,
+        );
+      }
       throw InstallException(
         code: 'ARTIFACT_DOWNLOAD_FAILED',
         message: error.response?.statusCode == null
@@ -126,6 +171,10 @@ class ArtifactDownloader {
         retryable: true,
       );
     } finally {
+      removeCancelListener?.call();
+      if (_providedDio == null && !(cancellation?.isCancelled ?? false)) {
+        dio.close();
+      }
       if (sink != null) {
         try {
           await sink.close();
@@ -139,23 +188,18 @@ class ArtifactDownloader {
       uri.host.isNotEmpty &&
       uri.userInfo.isEmpty &&
       uri.fragment.isEmpty &&
-      (uri.scheme == 'https' ||
-          (uri.scheme == 'http' &&
-              (allowInsecureDownload || _isLoopbackHost(uri.host))));
+      (uri.scheme == 'https' || uri.scheme == 'http');
 
-  bool _isLoopbackHost(String host) {
-    final normalized = host.toLowerCase();
-    return normalized == 'localhost' ||
-        normalized == '127.0.0.1' ||
-        normalized == '::1' ||
-        normalized.endsWith('.localhost');
-  }
-
-  Future<Response<ResponseBody>> _getFollowingSafeRedirects(Uri initial) async {
+  Future<Response<ResponseBody>> _getFollowingSafeRedirects(
+    Dio dio,
+    Uri initial,
+    CancelToken cancelToken,
+  ) async {
     var current = initial;
     for (var redirects = 0; redirects <= 5; redirects++) {
-      final response = await _dio.getUri<ResponseBody>(
+      final response = await dio.getUri<ResponseBody>(
         current,
+        cancelToken: cancelToken,
         options: Options(
           responseType: ResponseType.stream,
           followRedirects: false,
@@ -177,11 +221,10 @@ class ArtifactDownloader {
         );
       }
       final redirected = current.resolve(location);
-      if (!_isAllowedUri(redirected) ||
-          (current.scheme == 'https' && redirected.scheme != 'https')) {
+      if (!_isAllowedUri(redirected)) {
         throw const InstallException(
           code: 'ARTIFACT_DOWNLOAD_FAILED',
-          message: 'Artifact download redirect is not secure',
+          message: 'Artifact download redirect is invalid',
           retryable: true,
         );
       }

@@ -2,42 +2,33 @@ import 'package:dio/dio.dart';
 
 import 'dto.dart';
 import 'exception.dart';
+import '../service/install_cancellation.dart';
 
 class HubClient {
   final Dio _dio;
   final Uri _baseUri;
   final String daemonVersion;
-  final bool allowInsecureHub;
 
-  HubClient(
-    String baseUrl, {
-    this.daemonVersion = 'unknown',
-    this.allowInsecureHub = false,
-    Dio? dio,
-  }) : _baseUri = canonicalizeRegistry(
-         baseUrl,
-         allowInsecure: allowInsecureHub,
-       ),
-       _dio =
-           dio ??
-           Dio(
-             BaseOptions(
-               connectTimeout: const Duration(seconds: 5),
-               receiveTimeout: const Duration(seconds: 30),
-               headers: {"Content-Type": "application/json"},
-             ),
-           );
+  HubClient(String baseUrl, {this.daemonVersion = 'unknown', Dio? dio})
+    : _baseUri = canonicalizeRegistry(baseUrl),
+      _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              connectTimeout: const Duration(seconds: 5),
+              receiveTimeout: const Duration(seconds: 30),
+              headers: {"Content-Type": "application/json"},
+            ),
+          );
 
-  static Uri canonicalizeRegistry(String value, {bool allowInsecure = false}) {
+  static Uri canonicalizeRegistry(String value) {
     final parsed = Uri.tryParse(value.trim());
-    final loopback = parsed != null && _isLoopbackHost(parsed.host);
     if (parsed == null ||
         parsed.host.isEmpty ||
         parsed.userInfo.isNotEmpty ||
         parsed.query.isNotEmpty ||
         parsed.fragment.isNotEmpty ||
-        (parsed.scheme != 'https' &&
-            !(parsed.scheme == 'http' && (allowInsecure || loopback)))) {
+        (parsed.scheme != 'https' && parsed.scheme != 'http')) {
       throw const FormatException('Registry URL is invalid');
     }
     final normalizedPath = parsed.pathSegments
@@ -52,14 +43,6 @@ class HubClient {
     );
   }
 
-  static bool _isLoopbackHost(String host) {
-    final normalized = host.toLowerCase();
-    return normalized == 'localhost' ||
-        normalized == '127.0.0.1' ||
-        normalized == '::1' ||
-        normalized.endsWith('.localhost');
-  }
-
   String get canonicalRegistry => _baseUri.toString();
 
   Future<ResolveResult> resolve({
@@ -70,6 +53,7 @@ class HubClient {
     required String arch,
     required String abi,
     required String client,
+    InstallCancellationToken? cancellation,
   }) async {
     final segments = <String>[
       ..._baseUri.pathSegments.where((segment) => segment.isNotEmpty),
@@ -85,9 +69,15 @@ class HubClient {
       path: '/${segments.map(Uri.encodeComponent).join('/')}',
       queryParameters: {'os': os, 'arch': arch, 'abi': abi},
     );
+    cancellation?.throwIfCancelled();
+    final cancelToken = CancelToken();
+    final removeCancelListener = cancellation?.onCancel(
+      () => cancelToken.cancel('Installation was cancelled'),
+    );
     try {
       final response = await _dio.getUri<Map<String, dynamic>>(
         uri,
+        cancelToken: cancelToken,
         options: Options(
           headers: {
             'User-Agent': 'opentool-daemon/$daemonVersion',
@@ -104,7 +94,20 @@ class HubClient {
         );
       }
       return ResolveResult.fromJson(data);
+    } on InstallCancelledException {
+      throw const HubApiException(
+        code: 'INSTALL_CANCELLED',
+        message: 'Installation was cancelled',
+        retryable: false,
+      );
     } on DioException catch (error) {
+      if (CancelToken.isCancel(error)) {
+        throw const HubApiException(
+          code: 'INSTALL_CANCELLED',
+          message: 'Installation was cancelled',
+          retryable: false,
+        );
+      }
       throw _mapDioException(error);
     } on HubApiException {
       rethrow;
@@ -114,6 +117,8 @@ class HubClient {
         message: 'Hub resolve response is invalid: $error',
         retryable: true,
       );
+    } finally {
+      removeCancelListener?.call();
     }
   }
 
