@@ -120,7 +120,10 @@ class ManageController {
     final unauthorized = await _requireSudo(request);
     if (unauthorized != null) return unauthorized;
     await manageService.deleteApiKey(apiKey);
-    logger.log(LogModule.http, 'deleteApiKey.output', detail: apiKey);
+    final suffix = apiKey.length <= 4
+        ? '****'
+        : apiKey.substring(apiKey.length - 4);
+    logger.log(LogModule.http, 'deleteApiKey.output', detail: '***$suffix');
     return Response.ok(jsonEncode({'apiKey': apiKey}), headers: JSON_HEADERS);
   }
 

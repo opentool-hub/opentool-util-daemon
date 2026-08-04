@@ -3,51 +3,65 @@ import 'dart:io';
 import 'package:json_annotation/json_annotation.dart';
 import 'package:logging/logging.dart';
 import 'package:opentool_dart/opentool_client.dart';
-import 'package:yaml/yaml.dart';
 import 'constants.dart';
+import 'version.dart';
 
 part 'config.g.dart';
 
-final Config config = initConfig();
+Config config = initConfig();
 
-Config initConfig() {
-  final String configFilePath =
+Config initConfig({String? configFilePath, bool strict = false}) {
+  final resolvedConfigFilePath =
+      configFilePath ??
       '${Directory.current.path}${Platform.pathSeparator}bin${Platform.pathSeparator}config.json';
-  final String fallbackVersion = getVersionFromPubspec() ?? '0.0.0';
-  final File configFile = File(configFilePath);
+  const String fallbackVersion = daemonVersion;
+  final File configFile = File(resolvedConfigFilePath);
 
   Config buildDefaultConfig() =>
       Config(version: fallbackVersion, server: Server(), log: Log());
 
   if (!configFile.existsSync()) {
+    if (strict) {
+      throw FileSystemException(
+        'Config file does not exist',
+        resolvedConfigFilePath,
+      );
+    }
     return buildDefaultConfig();
   }
 
   try {
     final String configJsonString = configFile.readAsStringSync();
     final Map<String, dynamic> configJson = jsonDecode(configJsonString);
+    configJson['version'] = fallbackVersion;
     final Config loadedConfig = Config.fromJson(configJson);
     loadedConfig.server ??= Server();
     loadedConfig.log ??= Log();
-    final String resolvedVersion = fallbackVersion.isNotEmpty
-        ? fallbackVersion
-        : (loadedConfig.version.isEmpty ? '0.0.0' : loadedConfig.version);
-    loadedConfig.version = resolvedVersion;
+    loadedConfig.version = fallbackVersion;
     return loadedConfig;
   } catch (_) {
+    if (strict) rethrow;
     return buildDefaultConfig();
   }
 }
 
-String? getVersionFromPubspec() {
-  String pubspecFilePath =
-      '${Directory.current.path}${Platform.pathSeparator}pubspec.yaml';
-  File pubspecFile = File(pubspecFilePath);
-  if (!pubspecFile.existsSync()) return null;
-
-  String pubspecYamlString = pubspecFile.readAsStringSync();
-  final YamlMap pubspecYaml = loadYaml(pubspecYamlString);
-  return pubspecYaml['version'];
+String? configPathFromArgs(List<String> args) {
+  String? configPath;
+  for (var index = 0; index < args.length; index++) {
+    final argument = args[index];
+    if (argument == '--config') {
+      if (index + 1 >= args.length || args[index + 1].startsWith('--')) {
+        throw const FormatException('--config requires a file path');
+      }
+      configPath = args[++index];
+    } else if (argument.startsWith('--config=')) {
+      configPath = argument.substring('--config='.length);
+      if (configPath.isEmpty) {
+        throw const FormatException('--config requires a file path');
+      }
+    }
+  }
+  return configPath;
 }
 
 @JsonSerializable(createToJson: false)
