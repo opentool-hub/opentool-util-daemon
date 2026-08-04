@@ -26,7 +26,9 @@ The daemon will persist metadata under `~/.opentool` (servers, tools, config) an
 
 - `bin/config.json` is optional. If the file is missing or only contains `null` fields the daemon falls back to the defaults (`host: 127.0.0.1`, `port: 19627`, `prefix: /opentool-daemon`, `log.level: INFO`).
 - Any field you provide overrides the default while other properties stay untouched; e.g. `{ "server": { "port": 20000 } }` keeps the host/prefix unchanged.
-- The daemon always injects the `pubspec.yaml` version into the in-memory config, so you rarely need to set `version` manually.
+- Both `--config <path>` and `--config=<path>` load an explicit file. A missing or invalid explicitly selected file fails startup instead of silently selecting another configuration.
+- The repository `bin/config.json` binds `0.0.0.0` for trusted-LAN, multi-device development. Build, pull, delete, and Tool start/stop do not share one global authorization boundary, so do not expose this listener to the public Internet, untrusted Wi-Fi, or an unrestricted network. Use `127.0.0.1` for single-host operation.
+- Release builds use the compile-time daemon version (`0.3.0` in this release), so AOT binaries do not depend on a runtime `pubspec.yaml`.
 
 ---
 
@@ -42,6 +44,7 @@ All paths below are relative to the base prefix `/opentool-daemon`.
 | Manage | DELETE | `/apiKey/{apiKey}`           | Delete a daemon API key (requires sudo token)              |
 | Server | GET    | `/servers/list`              | List cached OpenTool servers                               |
 | Server | POST   | `/servers/build`             | Build a server from an Opentoolfile (SSE stream)           |
+| Server | POST   | `/servers/pull`              | Resolve and install an exact OpenTool Hub version (SSE)     |
 | Server | DELETE | `/servers/{serverId}`        | Delete a server record                                     |
 | Server | POST   | `/servers/{serverId}/tag`    | Add or reuse a tag for an existing server                  |
 | Server | GET    | `/servers/{serverId}/export` | Copy an `.ots` to a destination folder                     |
@@ -61,7 +64,7 @@ All paths below are relative to the base prefix `/opentool-daemon`.
 
 ### Notes on Streaming Endpoints
 
-`/servers/build`, `/tools/create`, `/tools/{id}/start`, and `/tools/{id}/streamCall` return `text/event-stream`. Events follow this format:
+`/servers/build`, `/servers/pull`, `/tools/create`, `/tools/{id}/start`, and `/tools/{id}/streamCall` return `text/event-stream`. Events follow this format:
 
 ```
 event:START|DATA|DONE|ERROR
@@ -70,7 +73,7 @@ data:{"json":"payload"}
 
 Use the client in `lib/src/client/client.dart` or any SSE-capable HTTP library to consume them.
 
-Internal daemon endpoints related to OpenTool Hub synchronization are intentionally omitted from this public developer document.
+Hub authentication and publishing are intentionally not daemon responsibilities. The daemon only resolves, downloads, verifies, and installs public Hub artifacts; publisher login and push belong to Hub clients such as the CLI.
 
 ## Security Headers & Tokens
 
@@ -85,7 +88,7 @@ Internal daemon endpoints related to OpenTool Hub synchronization are intentiona
 ```json
 {
   "name": "OpenTool Daemon",
-  "version": "0.1.0"
+  "version": "0.3.0"
 }
 ```
 
@@ -134,13 +137,99 @@ Removes the selected key immediately; running tools that relied on that key will
   {
     "id": "srv-1",
     "alias": "alpha",
-    "registry": "native",
-    "repo": "native",
+    "registry": "local",
+    "namespace": "local",
     "name": "demo-server",
-    "tag": "latest"
+    "version": "latest",
+    "source": {
+      "registry": "local",
+      "namespace": "local",
+      "name": "demo-server",
+      "version": "latest",
+      "artifactDigest": "sha256:...",
+      "artifactMediaType": "application/vnd.opentool.ots"
+    },
+    "platform": {"os": "linux", "arch": "arm64", "abi": "glibc"},
+    "size": 123456,
+    "installedAt": "2026-08-03T00:00:00.000Z"
   }
 ]
 ```
+
+`repo` and `tag` remain transitional response aliases for older clients. New integrations should use `namespace` and `version`.
+
+### POST /servers/pull
+
+The request body selects an exact immutable Hub version. The daemon detects the local platform; clients cannot select an artifact directly.
+
+```json
+{
+  "registry": "https://www.opentool-hub.com",
+  "namespace": "litevar",
+  "name": "stock",
+  "version": "1.2.3",
+  "client": "embedded"
+}
+```
+
+SSE stages are `resolving`, `waiting`, `downloading`, `verifying`, `importing`, and `installed`. An `error` event contains `code`, `message`, `retryable`, and an optional Hub `requestId`. A `done` event is emitted only after the verified `.ots` and all source metadata have been persisted.
+
+Registry and artifact URLs must use HTTPS. Plain HTTP is accepted automatically
+only for loopback hosts such as `localhost` and `127.0.0.1`; the
+`OPENTOOL_ALLOW_INSECURE_HUB=true` escape hatch is intended only for isolated
+development tests involving other hosts.
+
+#### Local Hub debugging
+
+The Hub Backend has not yet been deployed at `https://www.opentool-hub.com`,
+but that does not block local development. Two workflows are supported:
+
+1. Run the automated contract acceptance test without another repository:
+
+   ```bash
+   dart test test/service/hub_install_acceptance_test.dart
+   ```
+
+   It starts temporary HTTP Hub and artifact endpoints and covers macOS
+   arm64/native, Linux arm64/glibc, resolve, download, digest verification,
+   installation, restart reconciliation, and rollback failures. On the current
+   POSIX platform it also starts a real test Tool and completes
+   `pull → list → run → load/call → stop → restart list`.
+
+2. Run the real Hub Backend locally:
+
+   ```bash
+   # Run from opentool-hub/backend; development defaults to in-memory stores.
+   OPENTOOL_HUB_PUBLIC_URL=http://127.0.0.1:8080 \
+   OPENTOOL_HUB_WEB_ORIGIN=http://127.0.0.1:8080 \
+   OPENTOOL_HUB_ADDRESS=127.0.0.1:8080 \
+   go run ./cmd/opentool-hub
+   ```
+
+   Publish an `.ots` matching the daemon platform through the local Hub Web/CLI,
+   then use `http://127.0.0.1:8080` as the pull registry. Loopback HTTP is
+   allowed automatically. Set `OPENTOOL_ALLOW_INSECURE_HUB=true` only when the
+   local Hub uses an HTTP address on another LAN host. In-memory publications
+   are lost when the Hub process restarts.
+
+Production-domain deployment is a release acceptance condition, not a blocker
+for local implementation and contract tests.
+
+#### Hub acceptance gate
+
+Run before submission:
+
+```bash
+dart format --output=none --set-exit-if-changed lib test bin
+dart analyze
+dart test
+dart compile exe bin/opentool_daemon.dart -o /tmp/opentoold
+```
+
+After production deployment, real macOS arm64 and Linux arm64 artifacts must
+each pass `pull → list → run → load/call → stop → daemon restart → list`.
+That gate requires a real Hub, signed download URL, and executable artifact and
+cannot be replaced by the repository's simulated tests.
 
 ### POST /servers/build?opentoolfile=/path/to/repo&name=demo&tag=latest
 Streams build progress for each command listed in `Opentoolfile`. `event:DATA` packets contain:

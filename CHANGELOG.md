@@ -1,3 +1,15 @@
+## 0.3.0
+
+- Replace daemon-side Hub login and push with anonymous resolve/download/install
+- Verify artifact size and SHA-256 before atomic installation
+- Persist Hub source, immutable version/artifact digests, platform, size, media type, and installation time
+- Add exact-version pull SSE events and stable install errors
+- Treat premature pull stream closure as failure and allow loopback HTTP registries for local development
+- Migrate local server identity from `native/native` to `local/local`
+- Honor explicit `--config` files and support partial configuration overrides
+- Preserve artifact metadata when assigning additional tags to local servers
+- Add cross-platform Hub install, restart, rollback, interrupted-download, and proxy-error acceptance coverage
+
 ## 0.2.2
 
 - add server metadata to tool list responses

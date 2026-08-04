@@ -26,7 +26,9 @@ dart run bin/opentool_daemon.dart --config bin/config.json
 
 - `bin/config.json` 不是必需文件；如果缺失或其中字段为 `null`，守护进程会使用默认值（`host: 127.0.0.1`、`port: 19627`、`prefix: /opentool-daemon`、`log.level: INFO`）。
 - 只需写入你想覆盖的字段即可，其余保持默认，例如 `{ "server": { "port": 20000 } }` 只会修改端口。
-- 运行时会自动读取 `pubspec.yaml` 的版本号填入内存配置，通常无需显式设置 `version`。
+- `--config <path>` 与 `--config=<path>` 都会加载指定文件；显式指定的文件不存在或内容无效时，daemon 会启动失败，不会静默使用另一份配置。
+- 仓库内的 `bin/config.json` 使用 `0.0.0.0`，用于可信局域网内的多设备联调。当前 build、pull、delete、Tool start/stop 等接口没有统一的全局鉴权，请勿把该监听方式暴露到公网、不可信 Wi-Fi 或未经防火墙限制的网络；仅本机使用时请改为 `127.0.0.1`。
+- 发布构建使用编译期版本（当前为 `0.3.0`），AOT 二进制不依赖运行目录中的 `pubspec.yaml`。
 
 ---
 
@@ -42,6 +44,7 @@ dart run bin/opentool_daemon.dart --config bin/config.json
 | Manage | DELETE | `/apiKey/{apiKey}`           | 删除守护进程 API Key（需 sudo 令牌）     |
 | Server | GET    | `/servers/list`              | 列出缓存的 OpenTool Server         |
 | Server | POST   | `/servers/build`             | 根据 Opentoolfile 构建（SSE）       |
+| Server | POST   | `/servers/pull`              | 从 OpenTool Hub 解析并安装精确版本（SSE） |
 | Server | DELETE | `/servers/{serverId}`        | 删除指定 Server                   |
 | Server | POST   | `/servers/{serverId}/tag`    | 为 Server 新增或复用 tag            |
 | Server | GET    | `/servers/{serverId}/export` | 导出 `.ots` 到目标目录               |
@@ -61,7 +64,7 @@ dart run bin/opentool_daemon.dart --config bin/config.json
 
 ### 关于流式接口
 
-`/servers/build`、`/tools/create`、`/tools/{id}/start`、`/tools/{id}/streamCall` 都返回 `text/event-stream`，事件格式如下：
+`/servers/build`、`/servers/pull`、`/tools/create`、`/tools/{id}/start`、`/tools/{id}/streamCall` 都返回 `text/event-stream`，事件格式如下：
 
 ```
 event:START|DATA|DONE|ERROR
@@ -70,7 +73,7 @@ data:{"json":"payload"}
 
 可直接复用 `lib/src/client/client.dart` 实现的 Dart 客户端，或使用任意支持 SSE 的库处理这些事件。
 
-与 OpenTool Hub 同步相关的内部守护进程接口不在这份面向开发者的公开文档中展开说明。
+daemon 不承担 Hub 登录和发布，只负责公开制品的解析、下载、校验与安装；Publisher 登录和 push 由 CLI 等 Hub 客户端完成。
 
 ## 安全标头与令牌
 
@@ -85,7 +88,7 @@ data:{"json":"payload"}
 ```json
 {
   "name": "OpenTool Daemon",
-  "version": "0.1.0"
+  "version": "0.3.0"
 }
 ```
 
@@ -134,13 +137,81 @@ x-opentool-sudo-token: <temp-token>
   {
     "id": "srv-1",
     "alias": "alpha",
-    "registry": "native",
-    "repo": "native",
+    "registry": "local",
+    "namespace": "local",
     "name": "demo-server",
-    "tag": "latest"
+    "version": "latest"
   }
 ]
 ```
+
+`repo` 与 `tag` 仅作为旧客户端的过渡别名保留；新接入统一使用 `namespace` 与 `version`。
+
+### POST /servers/pull
+
+请求体必须指定 Hub 上不可变的精确版本，平台由 daemon 自动检测：
+
+```json
+{
+  "registry": "https://www.opentool-hub.com",
+  "namespace": "litevar",
+  "name": "stock",
+  "version": "1.2.3",
+  "client": "embedded"
+}
+```
+
+SSE 阶段依次为 `resolving`、`waiting`、`downloading`、`verifying`、`importing`、`installed`。只有制品完成摘要与大小校验并写入本地数据库后才会发送 `done`；失败通过 `error` 事件返回稳定错误码、可重试标记和可选 `requestId`。
+
+Registry 与 Artifact URL 必须使用 HTTPS；`localhost`、`127.0.0.1` 等 loopback
+地址会自动允许 HTTP。`OPENTOOL_ALLOW_INSECURE_HUB=true` 仅用于隔离开发测试中需要
+访问其他 HTTP 主机的情况。
+
+#### 本地 Hub 联调
+
+`https://www.opentool-hub.com` 尚未部署 Hub Backend 不影响本地开发。可以选择两种方式：
+
+1. 运行自动化契约验收（无需启动 Hub 仓库）：
+
+   ```bash
+   dart test test/service/hub_install_acceptance_test.dart
+   ```
+
+   测试会启动临时 HTTP Hub 和制品服务，覆盖 macOS arm64/native、Linux
+   arm64/glibc、resolve、下载、摘要校验、安装、重启协调和失败回滚；在当前 POSIX
+   平台还会启动真实测试 Tool，完成 `pull → list → run → load/call → stop → 重启后 list`。
+
+2. 与真实本地 Hub Backend 联调：
+
+   ```bash
+   # 在 opentool-hub/backend 中；开发默认使用内存 Catalog 和 Artifact Storage
+   OPENTOOL_HUB_PUBLIC_URL=http://127.0.0.1:8080 \
+   OPENTOOL_HUB_WEB_ORIGIN=http://127.0.0.1:8080 \
+   OPENTOOL_HUB_ADDRESS=127.0.0.1:8080 \
+   go run ./cmd/opentool-hub
+   ```
+
+   先通过本地 Hub Web/CLI 发布与 daemon 当前平台匹配的 `.ots`，再把 pull 请求的
+   `registry` 设为 `http://127.0.0.1:8080`。loopback HTTP 自动允许，不需要设置
+   `OPENTOOL_ALLOW_INSECURE_HUB`；如果 Hub 在另一台局域网机器的 HTTP 地址上，才需
+   显式设置该变量。内存模式重启后发布数据会丢失。
+
+生产域名部署属于上线验收条件，不作为本地代码和契约测试的阻塞项。
+
+#### Hub 验收门禁
+
+提交前运行：
+
+```bash
+dart format --output=none --set-exit-if-changed lib test bin
+dart analyze
+dart test
+dart compile exe bin/opentool_daemon.dart -o /tmp/opentoold
+```
+
+生产部署后还必须分别使用真实 macOS arm64 和 Linux arm64 制品执行：
+`pull → list → run → load/call → stop → 重启 daemon → list`。这一步依赖真实 Hub、
+签名下载地址和可执行制品，不能由仓库内的模拟测试替代。
 
 ### POST /servers/build?opentoolfile=/path/to/repo&name=demo&tag=latest
 SSE `event:DATA` 中包含正在执行的脚本与输出：
