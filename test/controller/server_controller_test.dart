@@ -147,7 +147,11 @@ void main() {
       );
 
       expect(response.statusCode, 400);
-      expect(await response.readAsString(), contains('INVALID_PULL_REQUEST'));
+      final body =
+          jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      final error = body['error'] as Map<String, dynamic>;
+      expect(error['code'], 'INVALID_REQUEST');
+      expect(error, isNot(contains('legacyCode')));
     });
 
     test(

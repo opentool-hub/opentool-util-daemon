@@ -160,11 +160,7 @@ class ServerController {
     } catch (error) {
       return Response.badRequest(
         body: jsonEncode({
-          'error': {
-            'code': 'INVALID_REQUEST',
-            'legacyCode': 'INVALID_PULL_REQUEST',
-            'message': error.toString(),
-          },
+          'error': {'code': 'INVALID_REQUEST', 'message': error.toString()},
         }),
         headers: JSON_HEADERS,
       );
