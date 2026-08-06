@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:opentool_daemon/src/service/artifact_downloader.dart';
 import 'package:opentool_daemon/src/service/exception.dart';
-import 'package:opentool_daemon/src/service/install_cancellation.dart';
+import 'package:opentool_daemon/src/service/pull_cancellation.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -27,7 +27,7 @@ void main() {
       }
       await request.response.close();
     });
-    final cancellation = InstallCancellationToken();
+    final cancellation = PullCancellationToken();
     try {
       await expectLater(
         ArtifactDownloader(dataDir: temp.path).download(
@@ -39,7 +39,7 @@ void main() {
           cancellation: cancellation,
         ),
         throwsA(
-          isA<InstallException>().having(
+          isA<ArtifactOperationException>().having(
             (error) => error.code,
             'code',
             'INSTALL_CANCELLED',
@@ -132,7 +132,7 @@ void main() {
             onVerifying: () {},
           ),
           throwsA(
-            isA<InstallException>().having(
+            isA<ArtifactOperationException>().having(
               (error) => error.code,
               'code',
               mismatch.code,
@@ -161,7 +161,7 @@ void main() {
           onVerifying: () {},
         ),
         throwsA(
-          isA<InstallException>().having(
+          isA<ArtifactOperationException>().having(
             (error) => error.code,
             'code',
             'ARTIFACT_DOWNLOAD_FAILED',
@@ -193,7 +193,7 @@ void main() {
           onVerifying: () {},
         ),
         throwsA(
-          isA<InstallException>().having(
+          isA<ArtifactOperationException>().having(
             (error) => error.code,
             'code',
             anyOf('ARTIFACT_DOWNLOAD_FAILED', 'ARTIFACT_SIZE_MISMATCH'),
@@ -223,7 +223,7 @@ void main() {
           onVerifying: () {},
         ),
         throwsA(
-          isA<InstallException>().having(
+          isA<ArtifactOperationException>().having(
             (error) => error.code,
             'code',
             'DISK_WRITE_FAILED',

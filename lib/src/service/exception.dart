@@ -86,13 +86,13 @@ class SudoAuthorizationException implements Exception {
   String toString() => 'SudoAuthorizationException: $message';
 }
 
-class InstallException implements Exception {
+class ArtifactOperationException implements Exception {
   final String code;
   final String message;
   final bool retryable;
   final String? requestId;
 
-  const InstallException({
+  const ArtifactOperationException({
     required this.code,
     required this.message,
     required this.retryable,
@@ -100,5 +100,10 @@ class InstallException implements Exception {
   });
 
   @override
-  String toString() => 'InstallException($code): $message';
+  String toString() => 'ArtifactOperationException($code): $message';
+}
+
+class ServerPolicyException extends ArtifactOperationException {
+  const ServerPolicyException({required super.code, required super.message})
+    : super(retryable: false);
 }

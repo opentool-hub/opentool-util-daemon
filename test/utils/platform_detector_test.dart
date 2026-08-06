@@ -43,7 +43,7 @@ void main() {
         abiName: 'android_arm64',
       ).detect(),
       throwsA(
-        isA<InstallException>().having(
+        isA<ArtifactOperationException>().having(
           (error) => error.code,
           'code',
           'PLATFORM_NOT_SUPPORTED',

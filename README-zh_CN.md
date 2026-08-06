@@ -27,8 +27,8 @@ dart run bin/opentool_daemon.dart --config bin/config.json
 - `bin/config.json` 不是必需文件；如果缺失或其中字段为 `null`，守护进程会使用默认值（`host: 127.0.0.1`、`port: 19627`、`prefix: /opentool-daemon`、`log.level: INFO`）。
 - 只需写入你想覆盖的字段即可，其余保持默认，例如 `{ "server": { "port": 20000 } }` 只会修改端口。
 - `--config <path>` 与 `--config=<path>` 都会加载指定文件；显式指定的文件不存在或内容无效时，daemon 会启动失败，不会静默使用另一份配置。
-- 仓库内的 `bin/config.json` 使用 `0.0.0.0`，用于可信局域网内的多设备联调。当前 build、pull、delete、Tool start/stop 等接口没有统一的全局鉴权，请勿把该监听方式暴露到公网、不可信 Wi-Fi 或未经防火墙限制的网络；仅本机使用时请改为 `127.0.0.1`。
-- 发布构建使用编译期版本（当前为 `0.3.0`），AOT 二进制不依赖运行目录中的 `pubspec.yaml`。
+- 仓库内的 `bin/config.json` 固定使用 `127.0.0.1`。除非已有可靠的网络鉴权边界，否则不要把 daemon 暴露到非本机网络。
+- 发布构建使用编译期版本（当前为 `0.4.0`），AOT 二进制不依赖运行目录中的 `pubspec.yaml`。
 
 ---
 
@@ -44,9 +44,8 @@ dart run bin/opentool_daemon.dart --config bin/config.json
 | Manage | DELETE | `/apiKey/{apiKey}`           | 删除守护进程 API Key（需 sudo 令牌）     |
 | Server | GET    | `/servers/list`              | 列出缓存的 OpenTool Server         |
 | Server | POST   | `/servers/build`             | 根据 Opentoolfile 构建（SSE）       |
-| Server | POST   | `/servers/pull`              | 从 OpenTool Hub 解析并安装精确版本（SSE） |
+| Server | POST   | `/servers/pull`              | 从 OpenTool Hub 拉取并注册精确版本（SSE） |
 | Server | DELETE | `/servers/{serverId}`        | 删除指定 Server                   |
-| Server | POST   | `/servers/{serverId}/tag`    | 为 Server 新增或复用 tag            |
 | Server | GET    | `/servers/{serverId}/export` | 导出 `.ots` 到目标目录               |
 | Server | POST   | `/servers/import`            | 导入外部 `.ots` 文件                |
 | Server | POST   | `/servers/{serverId}/alias`  | 修改 Server 别名                  |
@@ -88,7 +87,9 @@ daemon 不承担 Hub 登录和发布，只负责公开制品的解析、下载�
 ```json
 {
   "name": "OpenTool Daemon",
-  "version": "0.3.0"
+  "version": "0.4.0",
+  "apiVersion": 2,
+  "capabilities": ["artifactRegistryV2", "builtinReconcileV1", "pullSseV1", "toolMaterializationV1"]
 }
 ```
 
@@ -145,7 +146,7 @@ x-opentool-sudo-token: <temp-token>
 ]
 ```
 
-`repo` 与 `tag` 仅作为旧客户端的过渡别名保留；新接入统一使用 `namespace` 与 `version`。
+Server 版本不可变；需要不同版本时，应重新注册或拉取一个新的 Server 引用。
 
 ### POST /servers/pull
 
@@ -161,7 +162,7 @@ x-opentool-sudo-token: <temp-token>
 }
 ```
 
-SSE 阶段依次为 `resolving`、`waiting`、`downloading`、`verifying`、`importing`、`installed`。只有制品完成摘要与大小校验并写入本地数据库后才会发送 `done`；失败通过 `error` 事件返回稳定错误码、可重试标记和可选 `requestId`。
+SSE 阶段依次为 `resolving`、`downloading`、`verifying`、`registering`、`ready`。只有制品完成摘要与大小校验并持久化 Server 引用后才会发送 `done`；失败通过 `error` 事件返回稳定错误码、可重试标记和可选 `requestId`。
 
 Registry 与 Artifact URL 均支持 HTTP 和 HTTPS。跨越不可信网络时应使用 HTTPS，
 因为 HTTP 不提供传输机密性与完整性保护。
@@ -173,7 +174,7 @@ Registry 与 Artifact URL 均支持 HTTP 和 HTTPS。跨越不可信网络时应
 1. 运行自动化契约验收（无需启动 Hub 仓库）：
 
    ```bash
-   dart test test/service/hub_install_acceptance_test.dart
+   dart test test/service/hub_pull_acceptance_test.dart
    ```
 
    测试会启动临时 HTTP Hub 和制品服务，覆盖 macOS arm64/native、Linux
@@ -219,10 +220,7 @@ SSE `event:DATA` 中包含正在执行的脚本与输出：
   "output": "..."
 }
 ```
-`event:DONE` 表示 `.ots` 已写入 `~/.opentool/servers` 并关闭连接。
-
-### POST /servers/{serverId}/tag?tag=stable
-返回新增或复用的 Server DTO；若同一内部构建已有该 tag，则直接返回现有记录。
+`event:DONE` 表示 `.ots` 已提交到内容寻址 Artifact Registry 并关闭连接。
 
 ### GET /servers/{serverId}/export
 请求体需提供目标目录：
@@ -231,7 +229,7 @@ SSE `event:DATA` 中包含正在执行的脚本与输出：
   "path": "/tmp/output"
 }
 ```
-守护进程会输出文件 `<repo>-<name>-<tag>-<os>-<cpu>.ots` 到该目录。
+守护进程会输出文件 `<namespace>-<name>-<version>-<os>-<cpu>.ots` 到该目录。
 
 ### POST /servers/import
 ```json
@@ -247,7 +245,7 @@ SSE `event:DATA` 中包含正在执行的脚本与输出：
 
 ### GET /tools/list?all=1
 返回全部条目；省略 `all` 或设为 `0` 时仅返回运行中的工具。
-条目中可能包含 `serverId`，以及由 `repo`、`name` 和 `tag` 组成的 `server`
+条目中可能包含 `serverId`，以及由 `namespace`、`name` 和 `version` 组成的 `server`
 对象，用于标识创建该 Tool 时所使用的来源 Server；来源 Server 不可用时，
 `server` 对象不会返回。
 
@@ -264,9 +262,9 @@ SSE `event:DATA` 中包含正在执行的脚本与输出：
     "status": "RUNNING",
     "serverId": "srv-1",
     "server": {
-      "repo": "hub/opentool",
+      "namespace": "hub/opentool",
       "name": "demo",
-      "tag": "1.0.0"
+      "version": "1.0.0"
     }
   }
 ]

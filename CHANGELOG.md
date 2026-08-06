@@ -1,3 +1,13 @@
+## 0.4.0
+
+- Add V2 content-addressed Artifact, Server reference, Tool, operation, schema, and builtin bundle storage
+- Route Hub pull, local import/build, and builtin reconcile through one Artifact registry
+- Add crash recovery, reference-aware deletion/GC, protected builtin policy, and host-token authentication
+- Add atomic Tool rematerialization with persisted artifact digest and derived content state
+- Add API version/capability negotiation, V2 Server DTOs, stable domain errors, and Pull SSE stages
+- Migrate V1 data copy-on-write while preserving Server IDs, aliases, Tool links, and rollback inventory
+- Default daemon binding to loopback and redact request bodies, signed URLs, credentials, and local paths from logs
+
 ## 0.3.0
 
 - Replace daemon-side Hub login and push with anonymous resolve/download/install

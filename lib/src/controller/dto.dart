@@ -8,16 +8,29 @@ part 'dto.g.dart';
 class VersionDto {
   String name;
   String version;
+  @JsonKey(defaultValue: 2)
+  int apiVersion;
+  @JsonKey(defaultValue: <String>[])
+  List<String> capabilities;
 
-  VersionDto({required this.name, required this.version});
+  VersionDto({
+    required this.name,
+    required this.version,
+    this.apiVersion = 2,
+    this.capabilities = const [],
+  });
 
   factory VersionDto.fromJson(Map<String, dynamic> json) =>
       _$VersionDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$VersionDtoToJson(this);
 
-  factory VersionDto.fromModel(VersionModel model) =>
-      VersionDto(name: model.name, version: model.version);
+  factory VersionDto.fromModel(VersionModel model) => VersionDto(
+    name: model.name,
+    version: model.version,
+    apiVersion: model.apiVersion,
+    capabilities: model.capabilities,
+  );
 }
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
@@ -58,44 +71,43 @@ class ApiKeyDto {
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
 class OpenToolServerDto {
+  @JsonKey(defaultValue: 2)
+  int schemaVersion;
   String id;
   String alias;
   String registry;
   String namespace;
   String version;
-  @Deprecated('Use namespace')
-  String repo;
   String name;
-  @Deprecated('Use version')
-  String tag;
   ServerSourceDto? source;
   ServerPlatformDto? platform;
   int? size;
-  DateTime? installedAt;
+  DateTime? createdAt;
+  ServerArtifactDto? artifact;
+  ServerPolicyDto? policy;
+  ServerCapabilitiesDto? capabilities;
+  String? state;
 
   OpenToolServerDto({
+    this.schemaVersion = 2,
     required this.id,
     required this.alias,
     required this.registry,
     required this.namespace,
     required this.version,
-    required this.repo,
     required this.name,
-    required this.tag,
     this.source,
     this.platform,
     this.size,
-    this.installedAt,
+    this.createdAt,
+    this.artifact,
+    this.policy,
+    this.capabilities,
+    this.state,
   });
 
-  factory OpenToolServerDto.fromJson(Map<String, dynamic> json) {
-    final migrated = Map<String, dynamic>.from(json);
-    migrated['namespace'] ??= migrated['repo'];
-    migrated['version'] ??= migrated['tag'];
-    migrated['repo'] ??= migrated['namespace'];
-    migrated['tag'] ??= migrated['version'];
-    return _$OpenToolServerDtoFromJson(migrated);
-  }
+  factory OpenToolServerDto.fromJson(Map<String, dynamic> json) =>
+      _$OpenToolServerDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$OpenToolServerDtoToJson(this);
 
@@ -105,21 +117,33 @@ class OpenToolServerDto {
     registry: model.registry,
     namespace: model.namespace,
     version: model.version,
-    repo: model.repo,
     name: model.name,
-    tag: model.tag,
     source: ServerSourceDto.fromModel(model),
     platform: model.platform == null
         ? null
         : ServerPlatformDto.fromModel(model.platform!),
     size: model.artifactSize,
-    installedAt: model.installedAt,
+    createdAt: model.createdAt,
+    artifact: model.artifactDigest == null
+        ? null
+        : ServerArtifactDto.fromModel(model),
+    policy: ServerPolicyDto(
+      protected: model.protected,
+      managedBy: model.managedBy,
+    ),
+    capabilities: ServerCapabilitiesDto(
+      canRun: model.canRun,
+      canRemove: model.canRemove,
+    ),
+    state: model.state,
   );
 }
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
 class ServerSourceDto {
-  String registry;
+  @JsonKey(defaultValue: 'import')
+  String kind;
+  String? registry;
   String namespace;
   String name;
   String version;
@@ -129,7 +153,8 @@ class ServerSourceDto {
   String? artifactMediaType;
 
   ServerSourceDto({
-    required this.registry,
+    this.kind = 'import',
+    this.registry,
     required this.namespace,
     required this.name,
     required this.version,
@@ -137,7 +162,13 @@ class ServerSourceDto {
     this.artifactId,
     this.artifactDigest,
     this.artifactMediaType,
+    this.builtinBundleFamily,
+    this.builtinBundleId,
+    this.builtinKey,
   });
+  String? builtinBundleFamily;
+  String? builtinBundleId;
+  String? builtinKey;
 
   factory ServerSourceDto.fromJson(Map<String, dynamic> json) =>
       _$ServerSourceDtoFromJson(json);
@@ -145,7 +176,8 @@ class ServerSourceDto {
   Map<String, dynamic> toJson() => _$ServerSourceDtoToJson(this);
 
   factory ServerSourceDto.fromModel(ServerModel model) => ServerSourceDto(
-    registry: model.registry,
+    kind: model.sourceKind,
+    registry: model.registry.isEmpty ? null : model.registry,
     namespace: model.namespace,
     name: model.name,
     version: model.version,
@@ -153,7 +185,64 @@ class ServerSourceDto {
     artifactId: model.artifactId,
     artifactDigest: model.artifactDigest,
     artifactMediaType: model.artifactMediaType,
+    builtinBundleFamily: model.builtinBundleFamily,
+    builtinBundleId: model.builtinBundleId,
+    builtinKey: model.builtinKey,
   );
+}
+
+@JsonSerializable(explicitToJson: true, includeIfNull: false)
+class ServerArtifactDto {
+  String digest;
+  int? size;
+  String? mediaType;
+  ServerPlatformDto? platform;
+  DateTime? verifiedAt;
+  int referenceCount;
+
+  ServerArtifactDto({
+    required this.digest,
+    this.size,
+    this.mediaType,
+    this.platform,
+    this.verifiedAt,
+    required this.referenceCount,
+  });
+
+  factory ServerArtifactDto.fromJson(Map<String, dynamic> json) =>
+      _$ServerArtifactDtoFromJson(json);
+  Map<String, dynamic> toJson() => _$ServerArtifactDtoToJson(this);
+
+  factory ServerArtifactDto.fromModel(ServerModel model) => ServerArtifactDto(
+    digest: model.artifactDigest!,
+    size: model.artifactSize,
+    mediaType: model.artifactMediaType,
+    platform: model.platform == null
+        ? null
+        : ServerPlatformDto.fromModel(model.platform!),
+    verifiedAt: model.artifactVerifiedAt,
+    referenceCount: model.artifactReferenceCount,
+  );
+}
+
+@JsonSerializable()
+class ServerPolicyDto {
+  bool protected;
+  String managedBy;
+  ServerPolicyDto({required this.protected, required this.managedBy});
+  factory ServerPolicyDto.fromJson(Map<String, dynamic> json) =>
+      _$ServerPolicyDtoFromJson(json);
+  Map<String, dynamic> toJson() => _$ServerPolicyDtoToJson(this);
+}
+
+@JsonSerializable()
+class ServerCapabilitiesDto {
+  bool canRun;
+  bool canRemove;
+  ServerCapabilitiesDto({required this.canRun, required this.canRemove});
+  factory ServerCapabilitiesDto.fromJson(Map<String, dynamic> json) =>
+      _$ServerCapabilitiesDtoFromJson(json);
+  Map<String, dynamic> toJson() => _$ServerCapabilitiesDtoToJson(this);
 }
 
 @JsonSerializable()
@@ -274,7 +363,7 @@ class PullDoneDto {
   String stage;
   OpenToolServerDto server;
 
-  PullDoneDto({this.stage = 'installed', required this.server});
+  PullDoneDto({this.stage = 'ready', required this.server});
 
   factory PullDoneDto.fromJson(Map<String, dynamic> json) =>
       _$PullDoneDtoFromJson(json);
@@ -330,24 +419,31 @@ class CommandResultDto {
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
 class ToolServerDto {
-  String repo;
+  String namespace;
   String name;
-  String tag;
+  String version;
 
-  ToolServerDto({required this.repo, required this.name, required this.tag});
+  ToolServerDto({
+    required this.namespace,
+    required this.name,
+    required this.version,
+  });
 
   factory ToolServerDto.fromJson(Map<String, dynamic> json) =>
       _$ToolServerDtoFromJson(json);
 
   Map<String, dynamic> toJson() => _$ToolServerDtoToJson(this);
 
-  factory ToolServerDto.fromModel(ServerModel server) =>
-      ToolServerDto(repo: server.repo, name: server.name, tag: server.tag);
+  factory ToolServerDto.fromModel(ServerModel server) => ToolServerDto(
+    namespace: server.namespace,
+    name: server.name,
+    version: server.version,
+  );
 
   factory ToolServerDto.fromIdentity(ServerIdentity identity) => ToolServerDto(
-    repo: identity.repo,
+    namespace: identity.namespace,
     name: identity.name,
-    tag: identity.tag,
+    version: identity.version,
   );
 }
 
@@ -360,6 +456,8 @@ class ToolDto {
   String status;
   String? serverId;
   ToolServerDto? server;
+  String? materializedArtifactDigest;
+  String? contentState;
 
   ToolDto({
     required this.id,
@@ -369,6 +467,8 @@ class ToolDto {
     required this.status,
     this.serverId,
     this.server,
+    this.materializedArtifactDigest,
+    this.contentState,
   });
 
   factory ToolDto.fromJson(Map<String, dynamic> json) =>
@@ -383,6 +483,8 @@ class ToolDto {
     port: tool.port,
     status: tool.status,
     serverId: tool.serverId,
+    materializedArtifactDigest: tool.materializedArtifactDigest,
+    contentState: tool.contentState,
     server: server != null
         ? ToolServerDto.fromModel(server)
         : tool.serverIdentity == null
@@ -401,6 +503,8 @@ class ToolWithApiKeyDto {
   String status;
   String? serverId;
   ToolServerDto? server;
+  String? materializedArtifactDigest;
+  String? contentState;
 
   ToolWithApiKeyDto({
     required this.id,
@@ -411,6 +515,8 @@ class ToolWithApiKeyDto {
     required this.status,
     this.serverId,
     this.server,
+    this.materializedArtifactDigest,
+    this.contentState,
   });
 
   factory ToolWithApiKeyDto.fromJson(Map<String, dynamic> json) =>
@@ -427,6 +533,8 @@ class ToolWithApiKeyDto {
         apiKey: tool.apiKey,
         status: tool.status,
         serverId: tool.serverId,
+        materializedArtifactDigest: tool.materializedArtifactDigest,
+        contentState: tool.contentState,
         server: server != null
             ? ToolServerDto.fromModel(server)
             : tool.serverIdentity == null

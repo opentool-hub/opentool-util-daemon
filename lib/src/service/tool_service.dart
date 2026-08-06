@@ -7,13 +7,14 @@ import 'package:opentool_dart/opentool_client.dart';
 import 'package:path/path.dart' as p;
 import '../constants.dart';
 import '../storage/cache_storage.dart';
-import '../storage/hive_storage.dart';
 import '../storage/dao.dart';
+import '../storage/storage.dart';
 import '../utils/executable_util.dart';
 import '../utils/port_reservation_allocator.dart';
 import 'config.dart';
 import 'exception.dart';
 import 'model.dart';
+import 'tool_materialization_service.dart';
 
 int preferredPortForNewTool() => TOOL_DEFAULT_PORT;
 
@@ -38,20 +39,21 @@ class ToolService {
   late final ToolProcessLauncher _processLauncher;
   final Future<ServerModel> Function(String serverId)? _serverGetter;
   final Future<List<ServerModel>> Function()? _serverLister;
-  final Map<ServerIdentity, Future<ToolModel>> _runFlights = {};
+  final Map<String, Future<ToolModel>> _runFlights = {};
   final Map<String, _StartFlight> _startFlights = {};
   final Map<String, _AsyncMutex> _lifecycleLocks = {};
   final Map<String, int> _lifecycleGenerations = {};
   final Map<String, int> _lifecycleRequestEpochs = {};
   final Duration _readyCheckInterval;
   final Duration _readyCheckTimeout;
+  final ToolMaterializationService? _materializationService;
   static const Duration _stopCheckInterval = Duration(milliseconds: 100);
   static const Duration _stopCheckTimeout = Duration(seconds: 2);
 
   Stream<ToolLifecycleEventModel> get events => _eventController.stream;
 
   ToolService(
-    HiveToolStorage hive, {
+    Storage<ToolDao> hive, {
     CacheToolStorage? cacheToolStorage,
     OpenToolClient Function(ToolDao toolDao)? clientFactory,
     Future<int> Function(String host, int startPort)? portAllocator,
@@ -60,10 +62,12 @@ class ToolService {
     ToolProcessLauncher? processLauncher,
     Future<ServerModel> Function(String serverId)? serverGetter,
     Future<List<ServerModel>> Function()? serverLister,
+    ToolMaterializationService? materializationService,
     Duration readyCheckInterval = const Duration(milliseconds: 500),
     Duration readyCheckTimeout = const Duration(seconds: 30),
   }) : _serverGetter = serverGetter,
        _serverLister = serverLister,
+       _materializationService = materializationService,
        _readyCheckInterval = readyCheckInterval,
        _readyCheckTimeout = readyCheckTimeout {
     _cacheToolStorage = cacheToolStorage ?? CacheToolStorage(hive);
@@ -183,7 +187,11 @@ class ToolService {
       "list.result",
       detail: "count: ${daoList.length}",
     );
-    return daoList.map((dao) => ToolModel.fromDao(dao)).toList();
+    final models = <ToolModel>[];
+    for (final dao in daoList) {
+      models.add(await _toModelWithContentState(dao));
+    }
+    return models;
   }
 
   Future<ToolModel> get(String toolId) async {
@@ -191,7 +199,7 @@ class ToolService {
     ToolDao? toolDao = await _cacheToolStorage.get(toolId);
     if (toolDao == null) throw ToolNotFoundException(toolId);
     logger.log(LogModule.tool, "get.result", detail: "toolId: $toolId");
-    return ToolModel.fromDao(toolDao);
+    return _toModelWithContentState(toolDao);
   }
 
   Future<int> repairServerAssociations(List<ServerModel> servers) async {
@@ -205,6 +213,15 @@ class ToolService {
     for (final tool in await _cacheToolStorage.list()) {
       final referencedServer = serversById[tool.serverId];
       if (referencedServer != null) {
+        if (_materializationService != null) {
+          final snapshot = _snapshotIdentity(tool);
+          if (snapshot != referencedServer.identity) {
+            _applyIdentitySnapshot(tool, referencedServer.identity);
+            await _cacheToolStorage.update(tool);
+            repaired++;
+          }
+          continue;
+        }
         final snapshot = _snapshotIdentity(tool);
         final identity =
             snapshot ??
@@ -263,8 +280,8 @@ class ToolService {
     void Function(String script, String error)? onStderr,
     bool printStd = true,
   }) {
-    final identity = server.identity;
-    final existingFlight = _runFlights[identity];
+    final key = server.id;
+    final existingFlight = _runFlights[key];
     if (existingFlight != null) return existingFlight;
 
     late Future<ToolModel> flight;
@@ -277,11 +294,11 @@ class ToolService {
           onStderr: onStderr,
           printStd: printStd,
         ).whenComplete(() {
-          if (identical(_runFlights[identity], flight)) {
-            _runFlights.remove(identity);
+          if (identical(_runFlights[key], flight)) {
+            _runFlights.remove(key);
           }
         });
-    _runFlights[identity] = flight;
+    _runFlights[key] = flight;
     return flight;
   }
 
@@ -336,21 +353,10 @@ class ToolService {
     }
 
     final toolId = uniqueId();
-    final otsFilePath =
-        "$OPENTOOL_PATH${Platform.pathSeparator}$SERVER_FOLDER${Platform.pathSeparator}${server.name}-${server.internalId}.ots";
-    final tempFolder = await ZipUtil.unzipToTemp(otsFilePath);
-    final toolFolder =
-        "$OPENTOOL_PATH${Platform.pathSeparator}$TOOL_FOLDER${Platform.pathSeparator}$toolId";
-    await DirectoryUtil.copyDirectory(
-      Directory(tempFolder),
-      Directory(toolFolder),
-    );
-    await DirectoryUtil.deleteDirectory(tempFolder);
-
     final toolDao = ToolDao(
       id: toolId,
       alias: toolId,
-      tag: server.tag,
+      tag: server.version,
       host: hostType,
       port: preferredPortForNewTool(),
       apiKey: uniqueId(shorter: false),
@@ -362,6 +368,33 @@ class ToolService {
     );
     _applyIdentitySnapshot(toolDao, identity);
     await _cacheToolStorage.add(toolDao);
+    final materializer = _materializationService;
+    if (materializer != null) {
+      try {
+        await materializer.ensureMaterialized(toolDao, server);
+      } catch (_) {
+        await _cacheToolStorage.remove(toolId);
+        await DirectoryUtil.deleteDirectory(
+          p.join(OPENTOOL_PATH, TOOL_FOLDER, toolId),
+        );
+        rethrow;
+      }
+    } else {
+      final otsFilePath = server.artifactFilePath;
+      if (otsFilePath == null) {
+        throw StateError('Server artifact is unavailable: ${server.id}');
+      }
+      final tempFolder = await ZipUtil.unzipToTemp(otsFilePath);
+      final toolFolder =
+          "$OPENTOOL_PATH${Platform.pathSeparator}$TOOL_FOLDER${Platform.pathSeparator}$toolId";
+      await DirectoryUtil.copyDirectory(
+        Directory(tempFolder),
+        Directory(toolFolder),
+      );
+      await DirectoryUtil.deleteDirectory(tempFolder);
+      toolDao.materializedArtifactDigest = server.artifactDigest;
+      await _cacheToolStorage.update(toolDao);
+    }
 
     await _startToolSingleFlight(
       ToolModel.fromDao(toolDao),
@@ -453,6 +486,15 @@ class ToolService {
         detail: "toolId: $toolId",
       );
       return;
+    }
+
+    final serverId = toolDao.serverId;
+    if (_materializationService != null &&
+        serverId != null &&
+        _serverGetter != null) {
+      final server = await _serverGetter(serverId);
+      await _materializationService.ensureMaterialized(toolDao, server);
+      toolDao = (await _cacheToolStorage.get(toolId))!;
     }
 
     final generation = _nextLifecycleGeneration(toolId);
@@ -779,32 +821,66 @@ class ToolService {
   }
 
   bool _toolMatchesServer(ToolDao tool, ServerModel server) {
-    final snapshot = _snapshotIdentity(tool);
-    if (snapshot != null) return snapshot == server.identity;
-    return tool.serverId == server.id && tool.tag == server.tag;
+    return tool.serverId == server.id;
+  }
+
+  Future<ToolModel> _toModelWithContentState(ToolDao dao) async {
+    final model = ToolModel.fromDao(dao);
+    final manifest = File(
+      p.join(OPENTOOL_PATH, TOOL_FOLDER, dao.id, OPENTOOL_FILE_JSON_NAME),
+    );
+    if (!await manifest.exists()) {
+      model.contentState = 'broken';
+      return model;
+    }
+    final serverId = dao.serverId;
+    if (serverId == null || _serverGetter == null) {
+      model.contentState = dao.materializedArtifactDigest == null
+          ? 'unknown'
+          : 'current';
+      return model;
+    }
+    try {
+      final server = await _serverGetter(serverId);
+      if (server.state == 'broken') {
+        model.contentState = 'broken';
+      } else if (dao.materializedArtifactDigest == null) {
+        model.contentState = 'unknown';
+      } else if (dao.materializedArtifactDigest == server.artifactDigest) {
+        model.contentState = 'current';
+      } else {
+        model.contentState = 'updatePending';
+      }
+    } catch (_) {
+      model.contentState = 'broken';
+    }
+    return model;
   }
 
   ServerIdentity? _snapshotIdentity(ToolDao tool) {
     final registry = tool.serverRegistry;
-    final repo = tool.serverRepo;
+    final namespace = tool.serverNamespace;
     final name = tool.serverName;
-    final tag = tool.serverTag;
-    if (registry == null || repo == null || name == null || tag == null) {
+    final version = tool.serverVersion;
+    if (registry == null ||
+        namespace == null ||
+        name == null ||
+        version == null) {
       return null;
     }
     return ServerIdentity(
       registry: registry,
-      namespace: repo,
+      namespace: namespace,
       name: name,
-      version: tag,
+      version: version,
     );
   }
 
   void _applyIdentitySnapshot(ToolDao tool, ServerIdentity identity) {
     tool.serverRegistry = identity.registry;
-    tool.serverRepo = identity.repo;
+    tool.serverNamespace = identity.namespace;
     tool.serverName = identity.name;
-    tool.serverTag = identity.tag;
+    tool.serverVersion = identity.version;
   }
 
   Future<ServerIdentity?> _readWorkspaceIdentity(String toolId) async {

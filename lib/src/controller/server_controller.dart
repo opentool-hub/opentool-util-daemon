@@ -6,17 +6,25 @@ import 'package:opentool_daemon/opentool_daemon_utils.dart';
 import 'package:shelf/shelf.dart';
 import '../service/model.dart';
 import '../service/exception.dart';
-import '../service/hub_install_service.dart';
-import '../service/install_cancellation.dart';
+import '../service/hub_pull_service.dart';
+import '../service/builtin_reconcile_service.dart';
+import '../service/pull_cancellation.dart';
 import '../service/server_service.dart';
 import '../constants.dart';
 import 'dto.dart';
 
 class ServerController {
   ServerService serverService;
-  HubInstallService? hubInstallService;
+  HubPullService? hubPullService;
+  BuiltinReconcileService? builtinReconcileService;
+  HostManagementAuthenticator? hostAuthenticator;
 
-  ServerController(this.serverService, {this.hubInstallService});
+  ServerController(
+    this.serverService, {
+    this.hubPullService,
+    this.builtinReconcileService,
+    this.hostAuthenticator,
+  });
 
   /// GET /servers/list
   Future<Response> listServers(Request request) async {
@@ -43,7 +51,7 @@ class ServerController {
     logger.log(
       LogModule.http,
       "buildServer.input",
-      detail: "queryParams: ${jsonEncode(query)}",
+      detail: "name: ${query['name']}, tag: ${query['tag']}",
       level: Level.FINE,
     );
     String? opentoolfile = query['opentoolfile'];
@@ -107,52 +115,34 @@ class ServerController {
       detail: "serverId: $serverId",
       level: Level.FINE,
     );
+    final existing = await serverService.get(serverId);
+    final artifactRemoved = existing.artifactReferenceCount <= 1;
     await serverService.delete(serverId);
-    ServerIdDto serverIdDto = ServerIdDto(id: serverId);
-    logger.log(
-      LogModule.http,
-      "deleteServer",
-      detail: jsonEncode(serverIdDto.toJson()),
-    );
-    return Response.ok(jsonEncode(serverIdDto.toJson()), headers: JSON_HEADERS);
-  }
-
-  /// POST /servers/<serverId>/tag?tag=<target_tag>
-  Future<Response> tagServer(Request request, String serverId) async {
-    final query = request.url.queryParameters;
-    logger.log(
-      LogModule.http,
-      "tagServer.input",
-      detail: "queryParams: ${jsonEncode(query)}",
-      level: Level.FINE,
-    );
-    final tag = query['tag'];
-    ServerModel serverModel = await serverService.tag(serverId, tag);
-    OpenToolServerDto serverDto = OpenToolServerDto.fromModel(serverModel);
-    logger.log(
-      LogModule.http,
-      "tagServer",
-      detail: jsonEncode(serverDto.toJson()),
-    );
-    return Response.ok(jsonEncode(serverDto.toJson()), headers: JSON_HEADERS);
+    final body = {
+      'id': serverId,
+      'serverId': serverId,
+      'artifactRemoved': artifactRemoved,
+    };
+    logger.log(LogModule.http, "deleteServer", detail: jsonEncode(body));
+    return Response.ok(jsonEncode(body), headers: JSON_HEADERS);
   }
 
   /// POST /servers/pull
   Future<Response> pullServer(Request request) async {
-    final service = hubInstallService;
+    final service = hubPullService;
     if (service == null) {
       return Response.internalServerError(
         body: jsonEncode({
           'error': {
-            'code': 'INSTALL_FAILED',
-            'message': 'Hub installation service is unavailable',
+            'code': 'PULL_FAILED',
+            'message': 'Hub pull service is unavailable',
           },
         }),
         headers: JSON_HEADERS,
       );
     }
     final String payload;
-    final HubInstallRequest installRequest;
+    final HubPullRequest pullRequest;
     try {
       payload = await request.readAsString();
       final decoded = jsonDecode(payload);
@@ -160,7 +150,7 @@ class ServerController {
         throw const FormatException('Request body must be a JSON object');
       }
       final dto = PullInfoDto.fromJson(decoded);
-      installRequest = HubInstallRequest.validate(
+      pullRequest = HubPullRequest.validate(
         registry: dto.registry,
         namespace: dto.namespace,
         name: dto.name,
@@ -171,7 +161,8 @@ class ServerController {
       return Response.badRequest(
         body: jsonEncode({
           'error': {
-            'code': 'INVALID_PULL_REQUEST',
+            'code': 'INVALID_REQUEST',
+            'legacyCode': 'INVALID_PULL_REQUEST',
             'message': error.toString(),
           },
         }),
@@ -181,21 +172,21 @@ class ServerController {
     logger.log(
       LogModule.http,
       "pullServer.input",
-      detail: "ref: ${installRequest.ref}",
+      detail: "ref: ${pullRequest.ref}",
       level: Level.FINE,
     );
-    final cancellation = InstallCancellationToken();
+    final cancellation = PullCancellationToken();
     late final StreamController<List<int>> streamController;
     streamController = StreamController<List<int>>(
       onCancel: cancellation.cancel,
     );
     scheduleMicrotask(() async {
       try {
-        await service.install(
-          installRequest,
+        final server = await service.pull(
+          pullRequest,
           cancellation: cancellation,
           onEvent: (event) {
-            if (!cancellation.isCancelled) {
+            if (!cancellation.isCancelled && event.event != EventType.DONE) {
               _pushData(
                 streamController,
                 event.event,
@@ -205,7 +196,17 @@ class ServerController {
             }
           },
         );
-      } on InstallException catch (error) {
+        if (!cancellation.isCancelled) {
+          _pushData(
+            streamController,
+            EventType.DONE,
+            jsonEncode(
+              PullDoneDto(server: OpenToolServerDto.fromModel(server)).toJson(),
+            ),
+            logMessage: 'pullServer.push',
+          );
+        }
+      } on ArtifactOperationException catch (error) {
         if (!cancellation.isCancelled)
           _pushData(
             streamController,
@@ -233,8 +234,8 @@ class ServerController {
             EventType.ERROR,
             jsonEncode(
               PullErrorDto(
-                code: 'INSTALL_FAILED',
-                message: 'OpenTool installation failed',
+                code: 'PULL_FAILED',
+                message: 'OpenTool pull failed',
                 retryable: true,
               ).toJson(),
             ),
@@ -257,7 +258,7 @@ class ServerController {
     logger.log(
       LogModule.http,
       "exportServer.input",
-      detail: "serverId: $serverId, body: $payload",
+      detail: "serverId: $serverId",
       level: Level.FINE,
     );
     Map<String, dynamic> data = jsonDecode(payload);
@@ -275,12 +276,6 @@ class ServerController {
   /// POST /servers/import
   Future<Response> importServer(Request request) async {
     final payload = await request.readAsString();
-    logger.log(
-      LogModule.http,
-      "exportServer.input",
-      detail: "body: $payload",
-      level: Level.FINE,
-    );
     Map<String, dynamic> data = jsonDecode(payload);
     PathDto pathDto = PathDto.fromJson(data);
     ServerModel serverModel = await serverService.import(pathDto.path);
@@ -291,6 +286,56 @@ class ServerController {
       detail: jsonEncode(serverDto.toJson()),
     );
     return Response.ok(jsonEncode(serverDto.toJson()), headers: JSON_HEADERS);
+  }
+
+  /// PUT /servers/builtins/reconcile
+  Future<Response> reconcileBuiltins(Request request) async {
+    final service = builtinReconcileService;
+    final authenticator = hostAuthenticator;
+    if (service == null ||
+        authenticator == null ||
+        !authenticator.authorize(request.headers['x-opentool-host-token'])) {
+      return Response.forbidden(
+        jsonEncode({
+          'error': {
+            'code': 'HOST_AUTH_REQUIRED',
+            'message': 'A valid host management credential is required',
+            'retryable': false,
+          },
+        }),
+        headers: JSON_HEADERS,
+      );
+    }
+    final decoded = jsonDecode(await request.readAsString());
+    if (decoded is! Map<String, dynamic>) {
+      throw const ArtifactOperationException(
+        code: 'INVALID_REQUEST',
+        message: 'Request body must be an object',
+        retryable: false,
+      );
+    }
+    final rawItems = decoded['items'];
+    if (rawItems is! List) {
+      throw const ArtifactOperationException(
+        code: 'INVALID_REQUEST',
+        message: 'items must be an array',
+        retryable: false,
+      );
+    }
+    final result = await service.reconcile(
+      bundleFamily: decoded['bundleFamily'] as String? ?? '',
+      bundleId: decoded['bundleId'] as String? ?? '',
+      items: rawItems.map((value) {
+        final item = Map<String, dynamic>.from(value as Map);
+        return BuiltinItemInput(
+          key: item['key'] as String? ?? '',
+          path: item['path'] as String? ?? '',
+          expectedDigest: item['expectedDigest'] as String? ?? '',
+          expectedSize: item['expectedSize'] as int? ?? -1,
+        );
+      }).toList(),
+    );
+    return Response.ok(jsonEncode(result.toJson()), headers: JSON_HEADERS);
   }
 
   /// POST /servers/<serverId>/alias?alias=<target_alias>

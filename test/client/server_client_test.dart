@@ -18,9 +18,10 @@ void main() {
               'id': 'srv-1',
               'alias': 'alpha',
               'registry': 'hub.local',
-              'repo': 'hub/opentool',
+              'namespace': 'hub/opentool',
               'name': 'demo',
-              'tag': 'latest',
+              'version': 'latest',
+              'schemaVersion': 2,
             },
           ];
         },
@@ -34,31 +35,22 @@ void main() {
       expect(captured?.method, equals('GET'));
       expect(servers, hasLength(1));
       expect(servers.first.name, equals('demo'));
+      expect(servers.first.namespace, equals('hub/opentool'));
+      expect(servers.first.version, equals('latest'));
     });
 
-    test('tagServer posts query parameters for the new tag', () async {
-      RequestOptions? captured;
-      final stub = createStubDio({
-        'POST /srv-1/tag': (options) {
-          captured = options;
-          return {
-            'id': 'srv-1',
-            'alias': 'alpha',
-            'registry': 'hub.local',
-            'repo': 'hub/opentool',
-            'name': 'demo',
-            'tag': options.queryParameters['tag'],
-          };
-        },
-      });
-
-      final client = DaemonClient();
-      client.serverDio = stub;
-
-      final dto = await client.tagServer('srv-1', 'stable');
-
-      expect(captured?.queryParameters['tag'], equals('stable'));
-      expect(dto.tag, equals('stable'));
+    test('legacy-only Server payload is rejected', () {
+      expect(
+        () => OpenToolServerDto.fromJson({
+          'id': 'srv-1',
+          'alias': 'alpha',
+          'registry': 'hub.local',
+          'repo': 'hub/opentool',
+          'name': 'demo',
+          'tag': 'latest',
+        }),
+        throwsA(anything),
+      );
     });
 
     test(
@@ -97,7 +89,7 @@ void main() {
           'event:start\ndata:{"stage":"resolving","ref":"litevar/demo:1.2.3"}\n\n',
         );
         request.response.write(
-          'event:done\ndata:{"stage":"installed","server":{"id":"srv-1","alias":"demo","registry":"https://www.opentool-hub.com","namespace":"litevar","version":"1.2.3","repo":"litevar","name":"demo","tag":"1.2.3"}}\n\n',
+          'event:done\ndata:{"stage":"ready","server":{"schemaVersion":2,"id":"srv-1","alias":"demo","registry":"https://www.opentool-hub.com","namespace":"litevar","name":"demo","version":"1.2.3"}}\n\n',
         );
         await request.response.close();
       });
@@ -117,7 +109,7 @@ void main() {
           onStart: (_) {},
           onDownload: (_) {},
           onDone: (value) => done = value,
-          onInstallError: (_) {},
+          onPullError: (_) {},
         );
 
         expect(requestBody, {
@@ -160,7 +152,7 @@ void main() {
               onStart: (_) {},
               onDownload: (_) {},
               onDone: (_) {},
-              onInstallError: (_) {},
+              onPullError: (_) {},
             ),
             throwsA(isA<SseProtocolException>()),
           );

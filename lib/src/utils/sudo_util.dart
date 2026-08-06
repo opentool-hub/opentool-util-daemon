@@ -115,7 +115,7 @@ class SudoUtil {
       logger.log(
         LogModule.manage,
         'sudoToken.read.failed',
-        detail: 'path: $socketPath error: $error',
+        detail: 'unable to write sudo token: ${error.runtimeType}',
         level: Level.WARNING,
       );
       rethrow;

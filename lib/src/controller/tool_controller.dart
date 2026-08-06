@@ -525,7 +525,7 @@ class ToolController {
     logger.log(
       LogModule.http,
       "callTool.input",
-      detail: "toolId: $toolId, body: $payload",
+      detail: "toolId: $toolId",
       level: Level.FINE,
     );
     Map<String, dynamic> data = jsonDecode(payload);
@@ -545,7 +545,7 @@ class ToolController {
     logger.log(
       LogModule.http,
       "streamCallTool.input",
-      detail: "toolId: $toolId, body: $payload",
+      detail: "toolId: $toolId",
       level: Level.FINE,
     );
     Map<String, dynamic> data = jsonDecode(payload);

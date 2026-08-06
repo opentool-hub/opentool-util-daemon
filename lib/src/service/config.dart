@@ -148,26 +148,3 @@ class OpenToolRun {
 
   Map<String, dynamic> toJson() => _$OpenToolRunToJson(this);
 }
-
-// @JsonSerializable(includeIfNull: false, explicitToJson: true)
-// class OpenToolServerMetadata {
-//   String registry ;
-//   String repo;
-//   String name;
-//   String tag;
-//   String os;
-//   String cpuArch;
-//
-//   OpenToolServerMetadata({
-//     required this.registry,
-//     required this.repo,
-//     required this.name,
-//     required this.tag,
-//     required this.os,
-//     required this.cpuArch,
-//   });
-//
-//   factory OpenToolServerMetadata.fromJson(Map<String, dynamic> json) => _$OpenToolServerMetadataFromJson(json);
-//
-//   Map<String, dynamic> toJson() => _$OpenToolServerMetadataToJson(this);
-// }

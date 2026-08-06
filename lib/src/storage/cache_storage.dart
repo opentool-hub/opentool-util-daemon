@@ -1,14 +1,13 @@
-import 'hive_storage.dart';
 import 'dao.dart';
 import 'in_memory_storage.dart';
 import 'storage.dart';
 
 class CacheServerStorage implements Storage<ServerDao> {
   final InMemoryServerStorage _inMemory = InMemoryServerStorage();
-  late HiveServerStorage _hive;
+  late Storage<ServerDao> _hive;
   bool _warmed = false;
 
-  CacheServerStorage(HiveServerStorage hiveOpenToolServerStorage) {
+  CacheServerStorage(Storage<ServerDao> hiveOpenToolServerStorage) {
     _hive = hiveOpenToolServerStorage;
   }
 
@@ -55,10 +54,10 @@ class CacheServerStorage implements Storage<ServerDao> {
 
 class CacheToolStorage implements Storage<ToolDao> {
   final InMemoryToolStorage _inMemory = InMemoryToolStorage();
-  late HiveToolStorage _hive;
+  late Storage<ToolDao> _hive;
   bool _warmed = false;
 
-  CacheToolStorage(HiveToolStorage hiveToolStorage) {
+  CacheToolStorage(Storage<ToolDao> hiveToolStorage) {
     _hive = hiveToolStorage;
   }
 

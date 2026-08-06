@@ -6,8 +6,7 @@ import 'package:opentool_daemon/src/constants.dart';
 import 'package:opentool_daemon/src/hub/hub_client.dart';
 import 'package:opentool_daemon/src/service/artifact_downloader.dart';
 import 'package:opentool_daemon/src/service/exception.dart';
-import 'package:opentool_daemon/src/service/hub_install_service.dart';
-import 'package:opentool_daemon/src/service/server_service.dart';
+import 'package:opentool_daemon/src/service/hub_pull_service.dart';
 import 'package:opentool_daemon/src/utils/platform_detector.dart';
 import 'package:opentool_daemon/src/utils/zip_util.dart';
 import 'package:path/path.dart' as p;
@@ -16,7 +15,7 @@ import 'package:test/test.dart';
 import '../test_doubles.dart';
 
 void main() {
-  test('maps deprecated Hub versions to a stable install error', () async {
+  test('maps deprecated Hub versions to a stable pull error', () async {
     final httpServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final registry = 'http://${httpServer.address.host}:${httpServer.port}';
     final serving = httpServer.listen((request) async {
@@ -34,16 +33,15 @@ void main() {
       await request.response.close();
     });
     try {
-      final service = HubInstallService(
-        serverService: ServerService(
-          StubHiveServerStorage(),
-          StubHiveInternalServerStorage(),
-        ),
+      final harness = await TestRegistryHarness.create();
+      addTearDown(harness.dispose);
+      final service = HubPullService(
+        serverService: harness.serverService,
         daemonVersion: 'test',
       );
       await expectLater(
-        service.install(
-          HubInstallRequest.validate(
+        service.pull(
+          HubPullRequest.validate(
             registry: registry,
             namespace: 'litevar',
             name: 'deprecated-demo',
@@ -53,7 +51,7 @@ void main() {
           onEvent: (_) {},
         ),
         throwsA(
-          isA<InstallException>()
+          isA<ArtifactOperationException>()
               .having((error) => error.code, 'code', 'TOOL_VERSION_DEPRECATED')
               .having((error) => error.retryable, 'retryable', isFalse),
         ),
@@ -64,9 +62,9 @@ void main() {
     }
   });
 
-  test('pull resolves, verifies, installs, and reuses one artifact', () async {
+  test('pull resolves, verifies, registers, and reuses one artifact', () async {
     final originalOpenToolPath = OPENTOOL_PATH;
-    final temp = await Directory.systemTemp.createTemp('hub_install_test_');
+    final temp = await Directory.systemTemp.createTemp('hub_pull_test_');
     OPENTOOL_PATH = p.join(temp.path, '.opentool');
     final platform = await PlatformDetector().detect();
     final bundle = Directory(p.join(temp.path, 'bundle'));
@@ -133,43 +131,43 @@ void main() {
     });
 
     try {
-      final serverStorage = StubHiveServerStorage();
-      final internalStorage = StubHiveInternalServerStorage();
-      final serverService = ServerService(serverStorage, internalStorage);
-      final installService = HubInstallService(
+      final harness = await TestRegistryHarness.create(
+        root: Directory(OPENTOOL_PATH),
+      );
+      final serverService = harness.serverService;
+      final pullService = HubPullService(
         serverService: serverService,
         daemonVersion: 'test',
         downloader: ArtifactDownloader(dataDir: OPENTOOL_PATH),
         hubClientFactory: (baseUrl) =>
             HubClient(baseUrl, daemonVersion: 'test'),
       );
-      final installRequest = HubInstallRequest.validate(
+      final pullRequest = HubPullRequest.validate(
         registry: registry,
         namespace: 'litevar',
         name: 'demo',
         version: '1.2.3',
         client: 'embedded',
       );
-      final firstEvents = <HubInstallEvent>[];
-      final secondEvents = <HubInstallEvent>[];
-      final results = await Future.wait([
-        installService.install(installRequest, onEvent: firstEvents.add),
-        installService.install(installRequest, onEvent: secondEvents.add),
-      ]);
-      final first = results.first;
-      final second = results.last;
-      final third = await installService.install(
-        installRequest,
-        onEvent: (_) {},
+      final firstEvents = <PullEvent>[];
+      final secondEvents = <PullEvent>[];
+      final first = await pullService.pull(
+        pullRequest,
+        onEvent: firstEvents.add,
       );
+      final second = await pullService.pull(
+        pullRequest,
+        onEvent: secondEvents.add,
+      );
+      final third = await pullService.pull(pullRequest, onEvent: (_) {});
       advertisedDigest = 'sha256:${List.filled(64, 'c').join()}';
       await expectLater(
-        installService.install(installRequest, onEvent: (_) {}),
+        pullService.pull(pullRequest, onEvent: (_) {}),
         throwsA(
-          isA<InstallException>().having(
+          isA<ArtifactOperationException>().having(
             (error) => error.code,
             'code',
-            'ARTIFACT_VERSION_CONFLICT',
+            'ARTIFACT_SOURCE_CONFLICT',
           ),
         ),
       );
@@ -186,12 +184,15 @@ void main() {
           'resolving',
           'downloading',
           'verifying',
-          'importing',
-          'installed',
+          'registering',
+          'ready',
         ]),
       );
-      expect(secondEvents.first.data['stage'], 'waiting');
-      expect(resolveCount, 3);
+      expect(
+        secondEvents.map((event) => event.data['stage']),
+        containsAllInOrder(['resolving', 'ready']),
+      );
+      expect(resolveCount, 4);
       expect(downloadCount, 1);
     } finally {
       await httpServer.close(force: true);

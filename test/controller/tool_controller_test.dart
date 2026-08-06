@@ -51,9 +51,9 @@ void main() {
             status: ToolStatusType.NOT_RUNNING,
             serverId: 'missing-server',
             serverRegistry: 'native',
-            serverRepo: 'native',
+            serverNamespace: 'native',
             serverName: 'opentool-server-markitdown',
-            serverTag: '0.1.0',
+            serverVersion: '0.1.0',
           ),
         ],
         toolReturns: {
@@ -66,9 +66,9 @@ void main() {
             id: 'tool-1',
             alias: 'alpha',
             registry: 'hub.local',
-            repo: 'hub/opentool',
+            namespace: 'hub/opentool',
             name: 'demo',
-            tag: '1.0.0',
+            version: '1.0.0',
             internalId: 'int-1',
           ),
         ],
@@ -100,14 +100,14 @@ void main() {
       expect(decoded, hasLength(3));
       expect(decoded.first['alias'], equals('alpha'));
       expect(decoded.first['server'], {
-        'repo': 'hub/opentool',
+        'namespace': 'hub/opentool',
         'name': 'demo',
-        'tag': '1.0.0',
+        'version': '1.0.0',
       });
       expect(decoded.last['server'], {
-        'repo': 'native',
+        'namespace': 'native',
         'name': 'opentool-server-markitdown',
-        'tag': '0.1.0',
+        'version': '0.1.0',
       });
     });
 
@@ -127,9 +127,9 @@ void main() {
           jsonDecode(await authedResponse.readAsString()) as List<dynamic>;
       expect(decoded.first['apiKey'], equals('key-1'));
       expect(decoded.first['server'], {
-        'repo': 'hub/opentool',
+        'namespace': 'hub/opentool',
         'name': 'demo',
-        'tag': '1.0.0',
+        'version': '1.0.0',
       });
 
       final unauthorizedRequest = Request(

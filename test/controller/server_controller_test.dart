@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:opentool_daemon/src/controller/server_controller.dart';
 import 'package:opentool_daemon/src/service/artifact_downloader.dart';
-import 'package:opentool_daemon/src/service/hub_install_service.dart';
-import 'package:opentool_daemon/src/service/install_cancellation.dart';
+import 'package:opentool_daemon/src/service/hub_pull_service.dart';
+import 'package:opentool_daemon/src/service/pull_cancellation.dart';
 import 'package:opentool_daemon/src/service/model.dart';
 import 'package:opentool_daemon/src/service/server_service.dart';
 import 'package:shelf/shelf.dart';
@@ -23,9 +23,9 @@ void main() {
             id: 'srv-1',
             alias: 'srv-1',
             registry: 'hub.local',
-            repo: 'hub/opentool',
+            namespace: 'hub/opentool',
             name: 'demo-server',
-            tag: 'latest',
+            version: 'latest',
             internalId: 'int-1',
           ),
         ],
@@ -45,7 +45,23 @@ void main() {
 
       expect(decoded, hasLength(1));
       expect(decoded.first['name'], equals('demo-server'));
-      expect(decoded.first['tag'], equals('latest'));
+      expect(decoded.first['version'], equals('latest'));
+      expect(
+        (decoded.first as Map<String, dynamic>).keys,
+        unorderedEquals([
+          'schemaVersion',
+          'id',
+          'alias',
+          'registry',
+          'namespace',
+          'version',
+          'name',
+          'source',
+          'policy',
+          'capabilities',
+          'state',
+        ]),
+      );
     });
 
     test('setAlias updates the server and returns the updated DTO', () async {
@@ -80,16 +96,13 @@ void main() {
       expect(serverService.list(), completion(isEmpty));
     });
 
-    test('pullServer returns SSE before the installation completes', () async {
+    test('pullServer returns SSE before the registration completes', () async {
       final release = Completer<void>();
-      final hubService = _ControlledHubInstallService(
+      final hubService = _ControlledHubPullService(
         serverService,
         release.future,
       );
-      controller = ServerController(
-        serverService,
-        hubInstallService: hubService,
-      );
+      controller = ServerController(serverService, hubPullService: hubService);
       final request = Request(
         'POST',
         Uri.parse('http://localhost/opentool-daemon/servers/pull'),
@@ -115,14 +128,11 @@ void main() {
     });
 
     test('pullServer rejects an invalid reference before SSE', () async {
-      final hubService = _ControlledHubInstallService(
+      final hubService = _ControlledHubPullService(
         serverService,
         Future<void>.value(),
       );
-      controller = ServerController(
-        serverService,
-        hubInstallService: hubService,
-      );
+      controller = ServerController(serverService, hubPullService: hubService);
       final response = await controller.pullServer(
         Request(
           'POST',
@@ -141,16 +151,16 @@ void main() {
     });
 
     test(
-      'pullServer cancels installation when the SSE client disconnects',
+      'pullServer cancels registration when the SSE client disconnects',
       () async {
         final release = Completer<void>();
-        final hubService = _ControlledHubInstallService(
+        final hubService = _ControlledHubPullService(
           serverService,
           release.future,
         );
         controller = ServerController(
           serverService,
-          hubInstallService: hubService,
+          hubPullService: hubService,
         );
         final response = await controller.pullServer(
           Request(
@@ -182,11 +192,11 @@ void main() {
   });
 }
 
-class _ControlledHubInstallService extends HubInstallService {
+class _ControlledHubPullService extends HubPullService {
   final Future<void> release;
   final Completer<void> cancelled = Completer<void>();
 
-  _ControlledHubInstallService(ServerService serverService, this.release)
+  _ControlledHubPullService(ServerService serverService, this.release)
     : super(
         serverService: serverService,
         daemonVersion: 'test',
@@ -194,31 +204,29 @@ class _ControlledHubInstallService extends HubInstallService {
       );
 
   @override
-  Future<ServerModel> install(
-    HubInstallRequest request, {
-    required void Function(HubInstallEvent event) onEvent,
-    InstallCancellationToken? cancellation,
+  Future<ServerModel> pull(
+    HubPullRequest request, {
+    required void Function(PullEvent event) onEvent,
+    PullCancellationToken? cancellation,
   }) async {
     cancellation?.onCancel(() {
       if (!cancelled.isCompleted) cancelled.complete();
     });
-    onEvent(
-      HubInstallEvent('start', {'stage': 'resolving', 'ref': request.ref}),
-    );
+    onEvent(PullEvent('start', {'stage': 'resolving', 'ref': request.ref}));
     await release;
     final server = ServerModel(
-      id: 'installed',
+      id: 'ready',
       alias: 'demo',
       registry: request.registry,
-      repo: request.namespace,
+      namespace: request.namespace,
       name: request.name,
-      tag: request.version,
+      version: request.version,
       internalId: 'internal',
     );
     onEvent(
-      const HubInstallEvent('done', {
-        'stage': 'installed',
-        'server': {'id': 'installed'},
+      const PullEvent('done', {
+        'stage': 'ready',
+        'server': {'id': 'ready'},
       }),
     );
     return server;

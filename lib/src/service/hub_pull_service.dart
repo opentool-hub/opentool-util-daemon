@@ -9,18 +9,18 @@ import '../utils/logger.dart';
 import '../utils/platform_detector.dart';
 import 'artifact_downloader.dart';
 import 'exception.dart';
-import 'install_cancellation.dart';
+import 'pull_cancellation.dart';
 import 'model.dart';
 import 'server_service.dart';
 
-class HubInstallRequest {
+class HubPullRequest {
   final String registry;
   final String namespace;
   final String name;
   final String version;
   final String client;
 
-  const HubInstallRequest({
+  const HubPullRequest({
     required this.registry,
     required this.namespace,
     required this.name,
@@ -28,7 +28,7 @@ class HubInstallRequest {
     required this.client,
   });
 
-  factory HubInstallRequest.validate({
+  factory HubPullRequest.validate({
     required String registry,
     required String namespace,
     required String name,
@@ -62,7 +62,7 @@ class HubInstallRequest {
     final canonicalRegistry = HubClient.canonicalizeRegistry(
       registry,
     ).toString();
-    return HubInstallRequest(
+    return HubPullRequest(
       registry: canonicalRegistry,
       namespace: normalizedNamespace,
       name: normalizedName,
@@ -74,23 +74,22 @@ class HubInstallRequest {
   String get ref => '$namespace/$name:$version';
 }
 
-class HubInstallEvent {
+class PullEvent {
   final String event;
   final Map<String, dynamic> data;
 
-  const HubInstallEvent(this.event, this.data);
+  const PullEvent(this.event, this.data);
 }
 
 typedef HubClientFactory = HubClient Function(String registry);
 
-class HubInstallService {
+class HubPullService {
   final ServerService serverService;
   final PlatformDetector platformDetector;
   final ArtifactDownloader downloader;
   final HubClientFactory _hubClientFactory;
-  final Map<String, Future<ServerModel>> _inFlight = {};
 
-  HubInstallService({
+  HubPullService({
     required this.serverService,
     required String daemonVersion,
     PlatformDetector? platformDetector,
@@ -102,57 +101,32 @@ class HubInstallService {
            hubClientFactory ??
            ((registry) => HubClient(registry, daemonVersion: daemonVersion));
 
-  Future<ServerModel> install(
-    HubInstallRequest request, {
-    required void Function(HubInstallEvent event) onEvent,
-    InstallCancellationToken? cancellation,
+  Future<ServerModel> pull(
+    HubPullRequest request, {
+    required void Function(PullEvent event) onEvent,
+    PullCancellationToken? cancellation,
   }) async {
     _ensureNotCancelled(cancellation);
     final platform = await platformDetector.detect();
-    final key = [
-      request.registry,
-      request.namespace,
-      request.name,
-      request.version,
-      platform.os,
-      platform.arch,
-      platform.abi,
-    ].join('|');
-
-    var task = _inFlight[key];
-    if (task == null) {
-      onEvent(
-        HubInstallEvent('start', {'stage': 'resolving', 'ref': request.ref}),
-      );
-      late Future<ServerModel> created;
-      created = _performInstall(request, platform, onEvent, cancellation)
-          .whenComplete(() {
-            if (identical(_inFlight[key], created)) _inFlight.remove(key);
-          });
-      _inFlight[key] = created;
-      task = created;
-    } else {
-      onEvent(
-        HubInstallEvent('start', {'stage': 'waiting', 'ref': request.ref}),
-      );
-    }
-
-    final server = await task;
+    onEvent(PullEvent('start', {'stage': 'resolving', 'ref': request.ref}));
+    final server = await _performInstall(
+      request,
+      platform,
+      onEvent,
+      cancellation,
+    );
     _ensureNotCancelled(cancellation);
     onEvent(
-      HubInstallEvent('done', {
-        'stage': 'installed',
-        'server': _serverJson(server),
-      }),
+      PullEvent('done', {'stage': 'ready', 'server': _serverJson(server)}),
     );
     return server;
   }
 
   Future<ServerModel> _performInstall(
-    HubInstallRequest request,
+    HubPullRequest request,
     ServerPlatform platform,
-    void Function(HubInstallEvent event) onEvent,
-    InstallCancellationToken? cancellation,
+    void Function(PullEvent event) onEvent,
+    PullCancellationToken? cancellation,
   ) async {
     String? downloadedPath;
     try {
@@ -184,10 +158,10 @@ class HubInstallService {
       if (existing != null) {
         if (existing.artifactDigest == resolved.artifact.digest)
           return existing;
-        throw const InstallException(
-          code: 'ARTIFACT_VERSION_CONFLICT',
+        throw const ArtifactOperationException(
+          code: 'ARTIFACT_SOURCE_CONFLICT',
           message:
-              'The requested published version is already installed with a different digest',
+              'The requested published version is already registered with a different digest',
           retryable: false,
         );
       }
@@ -198,7 +172,7 @@ class HubInstallService {
         expectedDigest: resolved.artifact.digest,
         onProgress: (downloaded, total) {
           onEvent(
-            HubInstallEvent('data', {
+            PullEvent('data', {
               'stage': 'downloading',
               'downloadedBytes': downloaded,
               'totalBytes': total,
@@ -207,7 +181,7 @@ class HubInstallService {
           );
         },
         onVerifying: () => onEvent(
-          HubInstallEvent('data', {
+          PullEvent('data', {
             'stage': 'verifying',
             'digest': resolved.artifact.digest,
           }),
@@ -215,7 +189,7 @@ class HubInstallService {
         cancellation: cancellation,
       );
       _ensureNotCancelled(cancellation);
-      final installed = await serverService.installHubArtifact(
+      final registered = await serverService.registerHubArtifact(
         downloadedPath,
         HubArtifactMetadata(
           registry: request.registry,
@@ -230,19 +204,19 @@ class HubInstallService {
           platform: platform,
         ),
         onImporting: () =>
-            onEvent(const HubInstallEvent('data', {'stage': 'importing'})),
+            onEvent(const PullEvent('data', {'stage': 'registering'})),
       );
       logger.log(
         LogModule.server,
-        'hub.install.result',
+        'hub.pull.result',
         detail:
-            'serverId: ${installed.id}, versionDigest: ${installed.versionDigest}, artifactId: ${installed.artifactId}, artifactDigest: ${installed.artifactDigest}',
+            'serverId: ${registered.id}, versionDigest: ${registered.versionDigest}, artifactId: ${registered.artifactId}, artifactDigest: ${registered.artifactDigest}',
       );
-      return installed;
-    } on InstallCancelledException {
-      throw const InstallException(
-        code: 'INSTALL_CANCELLED',
-        message: 'Installation was cancelled',
+      return registered;
+    } on PullCancelledException {
+      throw const ArtifactOperationException(
+        code: 'PULL_CANCELLED',
+        message: 'Pull was cancelled',
         retryable: false,
       );
     } on HubApiException catch (error) {
@@ -256,7 +230,7 @@ class HubInstallService {
   }
 
   void _validateResolve(
-    HubInstallRequest request,
+    HubPullRequest request,
     ServerPlatform platform,
     ResolveResult resolved,
   ) {
@@ -272,16 +246,16 @@ class HubInstallService {
         resolved.artifact.mediaType != 'application/vnd.opentool.ots' ||
         resolved.artifact.size <= 0 ||
         !digestPattern.hasMatch(resolved.artifact.digest)) {
-      throw const InstallException(
+      throw const ArtifactOperationException(
         code: 'HUB_INVALID_RESPONSE',
-        message: 'Hub resolve response does not match the installation request',
+        message: 'Hub resolve response does not match the pull request',
         retryable: true,
       );
     }
     if (!resolved.artifact.downloadUrlExpiresAt.isAfter(
       DateTime.now().toUtc(),
     )) {
-      throw const InstallException(
+      throw const ArtifactOperationException(
         code: 'HUB_UNAVAILABLE',
         message: 'Hub returned an expired artifact download URL',
         retryable: true,
@@ -289,9 +263,9 @@ class HubInstallService {
     }
   }
 
-  InstallException _mapHubError(HubApiException error) {
+  ArtifactOperationException _mapHubError(HubApiException error) {
     final code = switch (error.code) {
-      'INSTALL_CANCELLED' => 'INSTALL_CANCELLED',
+      'INSTALL_CANCELLED' => 'PULL_CANCELLED',
       'VERSION_DEPRECATED' => 'TOOL_VERSION_DEPRECATED',
       'TOOL_NOT_FOUND' ||
       'VERSION_NOT_FOUND' ||
@@ -300,7 +274,7 @@ class HubInstallService {
       'ARTIFACT_PLATFORM_UNSUPPORTED' => 'PLATFORM_NOT_SUPPORTED',
       _ => error.retryable ? 'HUB_UNAVAILABLE' : error.code,
     };
-    return InstallException(
+    return ArtifactOperationException(
       code: code,
       message: error.message,
       retryable: error.retryable,
@@ -308,11 +282,11 @@ class HubInstallService {
     );
   }
 
-  void _ensureNotCancelled(InstallCancellationToken? cancellation) {
+  void _ensureNotCancelled(PullCancellationToken? cancellation) {
     if (cancellation?.isCancelled ?? false) {
-      throw const InstallException(
-        code: 'INSTALL_CANCELLED',
-        message: 'Installation was cancelled',
+      throw const ArtifactOperationException(
+        code: 'PULL_CANCELLED',
+        message: 'Pull was cancelled',
         retryable: false,
       );
     }
@@ -324,9 +298,8 @@ class HubInstallService {
     'registry': server.registry,
     'namespace': server.namespace,
     'version': server.version,
-    'repo': server.repo,
     'name': server.name,
-    'tag': server.tag,
+    'schemaVersion': 2,
     'source': {
       'registry': server.registry,
       'namespace': server.namespace,
@@ -346,7 +319,7 @@ class HubInstallService {
         'abi': server.platform!.abi,
       },
     if (server.artifactSize != null) 'size': server.artifactSize,
-    if (server.installedAt != null)
-      'installedAt': server.installedAt!.toIso8601String(),
+    if (server.createdAt != null)
+      'createdAt': server.createdAt!.toIso8601String(),
   };
 }

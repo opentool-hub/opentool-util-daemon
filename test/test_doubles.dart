@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:opentool_daemon/src/service/artifact_registry_service.dart';
 import 'package:opentool_daemon/src/service/manage_service.dart';
 import 'package:opentool_daemon/src/service/model.dart';
 import 'package:opentool_daemon/src/service/server_service.dart';
 import 'package:opentool_daemon/src/service/tool_service.dart';
 import 'package:opentool_daemon/src/storage/dao.dart';
-import 'package:opentool_daemon/src/storage/hive_storage.dart';
+import 'package:opentool_daemon/src/storage/artifact_storage.dart';
 import 'package:opentool_daemon/src/storage/storage.dart';
 import 'package:opentool_dart/opentool_client.dart';
 
@@ -70,7 +72,7 @@ class FakeServerService implements ServerService {
   }
 
   @override
-  Future<ServerModel> installHubArtifact(
+  Future<ServerModel> registerHubArtifact(
     String sourcePath,
     HubArtifactMetadata metadata, {
     required void Function() onImporting,
@@ -80,24 +82,10 @@ class FakeServerService implements ServerService {
   Future<void> reconcileInstallations() async {}
 
   @override
-  Future<ServerModel> tag(String serverId, String? tag) async {
-    final server = await get(serverId);
-    server.tag = tag ?? server.tag;
-    return server;
-  }
-
-  @override
   Future<void> setAlias(String serverId, String newName) async {
     final server = await get(serverId);
     server.alias = newName;
   }
-
-  @override
-  Future<void> removeServersByNameAndTagForTest(
-    String name,
-    String tag, {
-    String? excludeServerId,
-  }) async {}
 }
 
 class FakeToolService implements ToolService {
@@ -161,7 +149,7 @@ class FakeToolService implements ToolService {
     final tool = ToolModel(
       id: 'tool-${_tools.length + 1}',
       alias: 'alias-${_tools.length + 1}',
-      tag: server.tag,
+      tag: server.version,
       host: hostType,
       port: 9000 + _tools.length,
       apiKey: 'key-${_tools.length + 1}',
@@ -239,91 +227,97 @@ class NoopManageService extends ManageService {
       VersionModel(name: 'noop', version: 'test');
 }
 
-class StubHiveServerStorage extends HiveServerStorage {
-  final Map<String, ServerDao> _store = {};
+class MemoryStorage<T> implements Storage<T> {
+  final String Function(T value) _keyOf;
+  final Map<String, T> _store = {};
 
-  void seed(Iterable<ServerDao> servers) {
-    for (final server in servers) {
-      _store[server.id] = server;
+  MemoryStorage(this._keyOf);
+
+  void seed(Iterable<T> values) {
+    for (final value in values) {
+      _store[_keyOf(value)] = value;
     }
   }
 
   @override
-  Future<void> add(ServerDao serverDao) async {
-    _store[serverDao.id] = serverDao;
+  Future<void> add(T value) async {
+    _store[_keyOf(value)] = value;
   }
 
   @override
-  Future<ServerDao?> get(String id) async => _store[id];
+  Future<T?> get(String id) async => _store[id];
 
   @override
-  Future<void> update(ServerDao serverDao) async {
-    _store[serverDao.id] = serverDao;
+  Future<void> update(T value) async {
+    _store[_keyOf(value)] = value;
   }
 
   @override
-  Future<ServerDao?> remove(String id) async => _store.remove(id);
+  Future<T?> remove(String id) async => _store.remove(id);
 
   @override
-  Future<List<ServerDao>> list() async => _store.values.toList();
+  Future<List<T>> list() async => _store.values.toList();
 }
 
-class StubHiveInternalServerStorage extends HiveInternalServerStorage {
-  final Map<String, InternalServerDao> _store = {};
-
-  void seed(Iterable<InternalServerDao> servers) {
-    for (final server in servers) {
-      _store[server.id] = server;
-    }
-  }
-
-  @override
-  Future<void> add(InternalServerDao serverDao) async {
-    _store[serverDao.id] = serverDao;
-  }
-
-  @override
-  Future<InternalServerDao?> get(String id) async => _store[id];
-
-  @override
-  Future<void> update(InternalServerDao serverDao) async {
-    _store[serverDao.id] = serverDao;
-  }
-
-  @override
-  Future<InternalServerDao?> remove(String id) async => _store.remove(id);
-
-  @override
-  Future<List<InternalServerDao>> list() async => _store.values.toList();
+class MemoryServerStorage extends MemoryStorage<ServerDao> {
+  MemoryServerStorage() : super((value) => value.id);
 }
 
-class StubHiveToolStorage extends HiveToolStorage {
-  final Map<String, ToolDao> _store = {};
+class MemoryToolStorage extends MemoryStorage<ToolDao> {
+  MemoryToolStorage() : super((value) => value.id);
+}
 
-  void seed(Iterable<ToolDao> tools) {
-    for (final tool in tools) {
-      _store[tool.id] = tool;
-    }
+class TestRegistryHarness {
+  final Directory root;
+  final MemoryStorage<ArtifactDao> artifacts;
+  final MemoryStorage<ServerDao> servers;
+  final MemoryStorage<ToolDao> tools;
+  final MemoryStorage<ArtifactOperationDao> operations;
+  final ArtifactRegistryService registry;
+  final ServerService serverService;
+
+  TestRegistryHarness._({
+    required this.root,
+    required this.artifacts,
+    required this.servers,
+    required this.tools,
+    required this.operations,
+    required this.registry,
+    required this.serverService,
+  });
+
+  static Future<TestRegistryHarness> create({
+    Directory? root,
+    MemoryStorage<ServerDao>? serverStorage,
+  }) async {
+    final dataRoot =
+        root ?? await Directory.systemTemp.createTemp('registry_harness_');
+    final artifacts = MemoryStorage<ArtifactDao>((value) => value.digest);
+    final servers =
+        serverStorage ?? MemoryStorage<ServerDao>((value) => value.id);
+    final tools = MemoryStorage<ToolDao>((value) => value.id);
+    final operations = MemoryStorage<ArtifactOperationDao>((value) => value.id);
+    final registry = ArtifactRegistryService(
+      content: ArtifactStorage(dataRoot.path),
+      artifacts: artifacts,
+      servers: servers,
+      operations: operations,
+      tools: tools,
+    );
+    return TestRegistryHarness._(
+      root: dataRoot,
+      artifacts: artifacts,
+      servers: servers,
+      tools: tools,
+      operations: operations,
+      registry: registry,
+      serverService: ServerService(servers, artifactRegistry: registry),
+    );
   }
 
-  @override
-  Future<void> add(ToolDao toolDao) async {
-    _store[toolDao.id] = toolDao;
+  Future<void> dispose() async {
+    if (await root.exists()) await root.delete(recursive: true);
   }
-
-  @override
-  Future<ToolDao?> get(String id) async => _store[id];
-
-  @override
-  Future<void> update(ToolDao toolDao) async {
-    _store[toolDao.id] = toolDao;
-  }
-
-  @override
-  Future<ToolDao?> remove(String id) async => _store.remove(id);
-
-  @override
-  Future<List<ToolDao>> list() async => _store.values.toList();
 }
 
 class InMemoryApiKeyStorage implements Storage<ApiKeyDao> {

@@ -3,7 +3,7 @@ import 'package:unique_id_dart/unique_id_dart.dart';
 import 'package:opentool_daemon/opentool_daemon_utils.dart';
 import '../constants.dart';
 import '../storage/dao.dart';
-import '../storage/hive_storage.dart';
+import '../storage/registry_storage.dart';
 import '../storage/storage.dart';
 import 'exception.dart';
 import 'model.dart';
@@ -23,7 +23,7 @@ class ManageService {
        _sudoUtil = sudoUtil ?? SudoUtil(),
        _apiKeyStorage =
            apiKeyStorage ??
-           HiveApiKeyStorage(dataDir: dataDir ?? OPENTOOL_PATH) {}
+           DeferredHiveApiKeyStorage(dataDir ?? OPENTOOL_PATH) {}
 
   String get _sudoTokenFilePath =>
       '$_dataDir${Platform.pathSeparator}$SUDO_TOKEN_FILE_NAME';

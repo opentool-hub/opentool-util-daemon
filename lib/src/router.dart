@@ -19,9 +19,9 @@ void manageRoutes(ManageController manageController) {
 void serverRoutes(ServerController serverController) {
   serverRouter.get('/list', serverController.listServers);
   serverRouter.post('/pull', serverController.pullServer);
+  serverRouter.put('/builtins/reconcile', serverController.reconcileBuiltins);
   serverRouter.post('/build', serverController.buildServer);
   serverRouter.delete('/<serverId>', serverController.deleteServer);
-  serverRouter.post('/<serverId>/tag', serverController.tagServer);
   serverRouter.get('/<serverId>/export', serverController.exportServer);
   serverRouter.post('/import', serverController.importServer);
   serverRouter.post('/<serverId>/alias', serverController.setAlias);

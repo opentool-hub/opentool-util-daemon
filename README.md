@@ -27,8 +27,8 @@ The daemon will persist metadata under `~/.opentool` (servers, tools, config) an
 - `bin/config.json` is optional. If the file is missing or only contains `null` fields the daemon falls back to the defaults (`host: 127.0.0.1`, `port: 19627`, `prefix: /opentool-daemon`, `log.level: INFO`).
 - Any field you provide overrides the default while other properties stay untouched; e.g. `{ "server": { "port": 20000 } }` keeps the host/prefix unchanged.
 - Both `--config <path>` and `--config=<path>` load an explicit file. A missing or invalid explicitly selected file fails startup instead of silently selecting another configuration.
-- The repository `bin/config.json` binds `0.0.0.0` for trusted-LAN, multi-device development. Build, pull, delete, and Tool start/stop do not share one global authorization boundary, so do not expose this listener to the public Internet, untrusted Wi-Fi, or an unrestricted network. Use `127.0.0.1` for single-host operation.
-- Release builds use the compile-time daemon version (`0.3.0` in this release), so AOT binaries do not depend on a runtime `pubspec.yaml`.
+- The repository `bin/config.json` binds `127.0.0.1`. Keep the daemon on loopback unless an authenticated network boundary is provided.
+- Release builds use the compile-time daemon version (`0.4.0` in this release), so AOT binaries do not depend on a runtime `pubspec.yaml`.
 
 ---
 
@@ -44,9 +44,9 @@ All paths below are relative to the base prefix `/opentool-daemon`.
 | Manage | DELETE | `/apiKey/{apiKey}`           | Delete a daemon API key (requires sudo token)              |
 | Server | GET    | `/servers/list`              | List cached OpenTool servers                               |
 | Server | POST   | `/servers/build`             | Build a server from an Opentoolfile (SSE stream)           |
-| Server | POST   | `/servers/pull`              | Resolve and install an exact OpenTool Hub version (SSE)     |
+| Server | POST   | `/servers/pull`              | Resolve and pull an exact OpenTool Hub version (SSE)        |
+| Server | PUT    | `/servers/builtins/reconcile`| Reconcile host-managed builtin Server references            |
 | Server | DELETE | `/servers/{serverId}`        | Delete a server record                                     |
-| Server | POST   | `/servers/{serverId}/tag`    | Add or reuse a tag for an existing server                  |
 | Server | GET    | `/servers/{serverId}/export` | Copy an `.ots` to a destination folder                     |
 | Server | POST   | `/servers/import`            | Import an external `.ots` file                             |
 | Server | POST   | `/servers/{serverId}/alias`  | Rename a server alias                                      |
@@ -73,7 +73,7 @@ data:{"json":"payload"}
 
 Use the client in `lib/src/client/client.dart` or any SSE-capable HTTP library to consume them.
 
-Hub authentication and publishing are intentionally not daemon responsibilities. The daemon only resolves, downloads, verifies, and installs public Hub artifacts; publisher login and push belong to Hub clients such as the CLI.
+Hub authentication and publishing are intentionally not daemon responsibilities. The daemon only resolves, downloads, verifies, and registers public Hub artifacts; publisher login and push belong to Hub clients such as the CLI.
 
 ## Security Headers & Tokens
 
@@ -88,7 +88,9 @@ Hub authentication and publishing are intentionally not daemon responsibilities.
 ```json
 {
   "name": "OpenTool Daemon",
-  "version": "0.3.0"
+  "version": "0.4.0",
+  "apiVersion": 2,
+  "capabilities": ["artifactRegistryV2", "builtinReconcileV1", "pullSseV1", "toolMaterializationV1"]
 }
 ```
 
@@ -151,12 +153,12 @@ Removes the selected key immediately; running tools that relied on that key will
     },
     "platform": {"os": "linux", "arch": "arm64", "abi": "glibc"},
     "size": 123456,
-    "installedAt": "2026-08-03T00:00:00.000Z"
+    "createdAt": "2026-08-03T00:00:00.000Z"
   }
 ]
 ```
 
-`repo` and `tag` remain transitional response aliases for older clients. New integrations should use `namespace` and `version`.
+Server versions are immutable. Register or pull a different version to create a different Server reference.
 
 ### POST /servers/pull
 
@@ -172,7 +174,7 @@ The request body selects an exact immutable Hub version. The daemon detects the 
 }
 ```
 
-SSE stages are `resolving`, `waiting`, `downloading`, `verifying`, `importing`, and `installed`. An `error` event contains `code`, `message`, `retryable`, and an optional Hub `requestId`. A `done` event is emitted only after the verified `.ots` and all source metadata have been persisted.
+SSE stages are `resolving`, `downloading`, `verifying`, `registering`, and `ready`. An `error` event contains `code`, `message`, `retryable`, and an optional Hub `requestId`. A `done` event is emitted only after the verified `.ots` and its Server reference have been persisted.
 
 Registry and artifact URLs may use HTTP or HTTPS. Use HTTPS across untrusted
 networks because HTTP does not provide transport confidentiality or integrity.
@@ -185,12 +187,12 @@ but that does not block local development. Two workflows are supported:
 1. Run the automated contract acceptance test without another repository:
 
    ```bash
-   dart test test/service/hub_install_acceptance_test.dart
+   dart test test/service/hub_pull_acceptance_test.dart
    ```
 
    It starts temporary HTTP Hub and artifact endpoints and covers macOS
    arm64/native, Linux arm64/glibc, resolve, download, digest verification,
-   installation, restart reconciliation, and rollback failures. On the current
+   pull registration, restart reconciliation, and rollback failures. On the current
    POSIX platform it also starts a real test Tool and completes
    `pull → list → run → load/call → stop → restart list`.
 
@@ -235,13 +237,10 @@ Streams build progress for each command listed in `Opentoolfile`. `event:DATA` p
   "output": "..."
 }
 ```
-`event:DONE` closes the stream once the `.ots` artifact is stored under `~/.opentool/servers`.
-
-### POST /servers/{serverId}/tag?tag=stable
-Returns the tagged server DTO. If the tag already exists for the same internal build, the existing record is reused.
+`event:DONE` closes the stream once the `.ots` artifact is committed to the content-addressed Artifact Registry.
 
 ### GET /servers/{serverId}/export
-Provide a JSON body `{ "path": "/tmp/output" }` describing the destination directory. The daemon copies the `.ots` into that folder using the pattern `<repo>-<name>-<tag>-<os>-<cpu>.ots`.
+Provide a JSON body `{ "path": "/tmp/output" }` describing the destination directory. The daemon copies the `.ots` into that folder using the pattern `<namespace>-<name>-<version>-<os>-<cpu>.ots`.
 
 ### POST /servers/import
 ```json
@@ -257,8 +256,8 @@ Response mirrors `OpenToolServerDto` for the imported build.
 
 ### GET /tools/list?all=1
 Returns every tool entry. Omit `all` or set it to `0` to only receive running tools.
-Each entry may include `serverId` and a `server` object containing `repo`,
-`name`, and `tag` to identify the source server used when the tool was created.
+Each entry may include `serverId` and a `server` object containing `namespace`,
+`name`, and `version` to identify the source server used when the tool was created.
 The `server` object is omitted when the source server is unavailable.
 
 ### GET /tools/listWithApiKeys?all=0 (requires `x-opentool-api-key`)
@@ -274,9 +273,9 @@ Send any daemon API key via the header described earlier to receive the same too
     "status": "RUNNING",
     "serverId": "srv-1",
     "server": {
-      "repo": "hub/opentool",
+      "namespace": "hub/opentool",
       "name": "demo",
-      "tag": "1.0.0"
+      "version": "1.0.0"
     }
   }
 ]

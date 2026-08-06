@@ -9,10 +9,21 @@ part of 'dto.dart';
 VersionDto _$VersionDtoFromJson(Map<String, dynamic> json) => VersionDto(
   name: json['name'] as String,
   version: json['version'] as String,
+  apiVersion: (json['apiVersion'] as num?)?.toInt() ?? 2,
+  capabilities:
+      (json['capabilities'] as List<dynamic>?)
+          ?.map((e) => e as String)
+          .toList() ??
+      [],
 );
 
 Map<String, dynamic> _$VersionDtoToJson(VersionDto instance) =>
-    <String, dynamic>{'name': instance.name, 'version': instance.version};
+    <String, dynamic>{
+      'name': instance.name,
+      'version': instance.version,
+      'apiVersion': instance.apiVersion,
+      'capabilities': instance.capabilities,
+    };
 
 CreateApiKeyDto _$CreateApiKeyDtoFromJson(Map<String, dynamic> json) =>
     CreateApiKeyDto(name: json['name'] as String?);
@@ -42,40 +53,49 @@ Map<String, dynamic> _$ApiKeyDtoToJson(ApiKeyDto instance) => <String, dynamic>{
   'createdAt': instance.createdAt.toIso8601String(),
 };
 
-OpenToolServerDto _$OpenToolServerDtoFromJson(Map<String, dynamic> json) =>
-    OpenToolServerDto(
-      id: json['id'] as String,
-      alias: json['alias'] as String,
-      registry: json['registry'] as String,
-      namespace: json['namespace'] as String,
-      version: json['version'] as String,
-      repo: json['repo'] as String,
-      name: json['name'] as String,
-      tag: json['tag'] as String,
-      source: json['source'] == null
-          ? null
-          : ServerSourceDto.fromJson(json['source'] as Map<String, dynamic>),
-      platform: json['platform'] == null
-          ? null
-          : ServerPlatformDto.fromJson(
-              json['platform'] as Map<String, dynamic>,
-            ),
-      size: (json['size'] as num?)?.toInt(),
-      installedAt: json['installedAt'] == null
-          ? null
-          : DateTime.parse(json['installedAt'] as String),
-    );
+OpenToolServerDto _$OpenToolServerDtoFromJson(
+  Map<String, dynamic> json,
+) => OpenToolServerDto(
+  schemaVersion: (json['schemaVersion'] as num?)?.toInt() ?? 2,
+  id: json['id'] as String,
+  alias: json['alias'] as String,
+  registry: json['registry'] as String,
+  namespace: json['namespace'] as String,
+  version: json['version'] as String,
+  name: json['name'] as String,
+  source: json['source'] == null
+      ? null
+      : ServerSourceDto.fromJson(json['source'] as Map<String, dynamic>),
+  platform: json['platform'] == null
+      ? null
+      : ServerPlatformDto.fromJson(json['platform'] as Map<String, dynamic>),
+  size: (json['size'] as num?)?.toInt(),
+  createdAt: json['createdAt'] == null
+      ? null
+      : DateTime.parse(json['createdAt'] as String),
+  artifact: json['artifact'] == null
+      ? null
+      : ServerArtifactDto.fromJson(json['artifact'] as Map<String, dynamic>),
+  policy: json['policy'] == null
+      ? null
+      : ServerPolicyDto.fromJson(json['policy'] as Map<String, dynamic>),
+  capabilities: json['capabilities'] == null
+      ? null
+      : ServerCapabilitiesDto.fromJson(
+          json['capabilities'] as Map<String, dynamic>,
+        ),
+  state: json['state'] as String?,
+);
 
 Map<String, dynamic> _$OpenToolServerDtoToJson(OpenToolServerDto instance) {
   final val = <String, dynamic>{
+    'schemaVersion': instance.schemaVersion,
     'id': instance.id,
     'alias': instance.alias,
     'registry': instance.registry,
     'namespace': instance.namespace,
     'version': instance.version,
-    'repo': instance.repo,
     'name': instance.name,
-    'tag': instance.tag,
   };
 
   void writeNotNull(String key, dynamic value) {
@@ -87,13 +107,18 @@ Map<String, dynamic> _$OpenToolServerDtoToJson(OpenToolServerDto instance) {
   writeNotNull('source', instance.source?.toJson());
   writeNotNull('platform', instance.platform?.toJson());
   writeNotNull('size', instance.size);
-  writeNotNull('installedAt', instance.installedAt?.toIso8601String());
+  writeNotNull('createdAt', instance.createdAt?.toIso8601String());
+  writeNotNull('artifact', instance.artifact?.toJson());
+  writeNotNull('policy', instance.policy?.toJson());
+  writeNotNull('capabilities', instance.capabilities?.toJson());
+  writeNotNull('state', instance.state);
   return val;
 }
 
 ServerSourceDto _$ServerSourceDtoFromJson(Map<String, dynamic> json) =>
     ServerSourceDto(
-      registry: json['registry'] as String,
+      kind: json['kind'] as String? ?? 'import',
+      registry: json['registry'] as String?,
       namespace: json['namespace'] as String,
       name: json['name'] as String,
       version: json['version'] as String,
@@ -101,15 +126,13 @@ ServerSourceDto _$ServerSourceDtoFromJson(Map<String, dynamic> json) =>
       artifactId: json['artifactId'] as String?,
       artifactDigest: json['artifactDigest'] as String?,
       artifactMediaType: json['artifactMediaType'] as String?,
+      builtinBundleFamily: json['builtinBundleFamily'] as String?,
+      builtinBundleId: json['builtinBundleId'] as String?,
+      builtinKey: json['builtinKey'] as String?,
     );
 
 Map<String, dynamic> _$ServerSourceDtoToJson(ServerSourceDto instance) {
-  final val = <String, dynamic>{
-    'registry': instance.registry,
-    'namespace': instance.namespace,
-    'name': instance.name,
-    'version': instance.version,
-  };
+  final val = <String, dynamic>{'kind': instance.kind};
 
   void writeNotNull(String key, dynamic value) {
     if (value != null) {
@@ -117,12 +140,78 @@ Map<String, dynamic> _$ServerSourceDtoToJson(ServerSourceDto instance) {
     }
   }
 
+  writeNotNull('registry', instance.registry);
+  val['namespace'] = instance.namespace;
+  val['name'] = instance.name;
+  val['version'] = instance.version;
   writeNotNull('versionDigest', instance.versionDigest);
   writeNotNull('artifactId', instance.artifactId);
   writeNotNull('artifactDigest', instance.artifactDigest);
   writeNotNull('artifactMediaType', instance.artifactMediaType);
+  writeNotNull('builtinBundleFamily', instance.builtinBundleFamily);
+  writeNotNull('builtinBundleId', instance.builtinBundleId);
+  writeNotNull('builtinKey', instance.builtinKey);
   return val;
 }
+
+ServerArtifactDto _$ServerArtifactDtoFromJson(Map<String, dynamic> json) =>
+    ServerArtifactDto(
+      digest: json['digest'] as String,
+      size: (json['size'] as num?)?.toInt(),
+      mediaType: json['mediaType'] as String?,
+      platform: json['platform'] == null
+          ? null
+          : ServerPlatformDto.fromJson(
+              json['platform'] as Map<String, dynamic>,
+            ),
+      verifiedAt: json['verifiedAt'] == null
+          ? null
+          : DateTime.parse(json['verifiedAt'] as String),
+      referenceCount: (json['referenceCount'] as num).toInt(),
+    );
+
+Map<String, dynamic> _$ServerArtifactDtoToJson(ServerArtifactDto instance) {
+  final val = <String, dynamic>{'digest': instance.digest};
+
+  void writeNotNull(String key, dynamic value) {
+    if (value != null) {
+      val[key] = value;
+    }
+  }
+
+  writeNotNull('size', instance.size);
+  writeNotNull('mediaType', instance.mediaType);
+  writeNotNull('platform', instance.platform?.toJson());
+  writeNotNull('verifiedAt', instance.verifiedAt?.toIso8601String());
+  val['referenceCount'] = instance.referenceCount;
+  return val;
+}
+
+ServerPolicyDto _$ServerPolicyDtoFromJson(Map<String, dynamic> json) =>
+    ServerPolicyDto(
+      protected: json['protected'] as bool,
+      managedBy: json['managedBy'] as String,
+    );
+
+Map<String, dynamic> _$ServerPolicyDtoToJson(ServerPolicyDto instance) =>
+    <String, dynamic>{
+      'protected': instance.protected,
+      'managedBy': instance.managedBy,
+    };
+
+ServerCapabilitiesDto _$ServerCapabilitiesDtoFromJson(
+  Map<String, dynamic> json,
+) => ServerCapabilitiesDto(
+  canRun: json['canRun'] as bool,
+  canRemove: json['canRemove'] as bool,
+);
+
+Map<String, dynamic> _$ServerCapabilitiesDtoToJson(
+  ServerCapabilitiesDto instance,
+) => <String, dynamic>{
+  'canRun': instance.canRun,
+  'canRemove': instance.canRemove,
+};
 
 ServerPlatformDto _$ServerPlatformDtoFromJson(Map<String, dynamic> json) =>
     ServerPlatformDto(
@@ -233,7 +322,7 @@ Map<String, dynamic> _$PullDownloadDtoToJson(PullDownloadDto instance) {
 }
 
 PullDoneDto _$PullDoneDtoFromJson(Map<String, dynamic> json) => PullDoneDto(
-  stage: json['stage'] as String? ?? 'installed',
+  stage: json['stage'] as String? ?? 'ready',
   server: OpenToolServerDto.fromJson(json['server'] as Map<String, dynamic>),
 );
 
@@ -296,16 +385,16 @@ Map<String, dynamic> _$CommandResultDtoToJson(CommandResultDto instance) {
 
 ToolServerDto _$ToolServerDtoFromJson(Map<String, dynamic> json) =>
     ToolServerDto(
-      repo: json['repo'] as String,
+      namespace: json['namespace'] as String,
       name: json['name'] as String,
-      tag: json['tag'] as String,
+      version: json['version'] as String,
     );
 
 Map<String, dynamic> _$ToolServerDtoToJson(ToolServerDto instance) =>
     <String, dynamic>{
-      'repo': instance.repo,
+      'namespace': instance.namespace,
       'name': instance.name,
-      'tag': instance.tag,
+      'version': instance.version,
     };
 
 ToolDto _$ToolDtoFromJson(Map<String, dynamic> json) => ToolDto(
@@ -318,6 +407,8 @@ ToolDto _$ToolDtoFromJson(Map<String, dynamic> json) => ToolDto(
   server: json['server'] == null
       ? null
       : ToolServerDto.fromJson(json['server'] as Map<String, dynamic>),
+  materializedArtifactDigest: json['materializedArtifactDigest'] as String?,
+  contentState: json['contentState'] as String?,
 );
 
 Map<String, dynamic> _$ToolDtoToJson(ToolDto instance) {
@@ -337,6 +428,11 @@ Map<String, dynamic> _$ToolDtoToJson(ToolDto instance) {
 
   writeNotNull('serverId', instance.serverId);
   writeNotNull('server', instance.server?.toJson());
+  writeNotNull(
+    'materializedArtifactDigest',
+    instance.materializedArtifactDigest,
+  );
+  writeNotNull('contentState', instance.contentState);
   return val;
 }
 
@@ -352,6 +448,8 @@ ToolWithApiKeyDto _$ToolWithApiKeyDtoFromJson(Map<String, dynamic> json) =>
       server: json['server'] == null
           ? null
           : ToolServerDto.fromJson(json['server'] as Map<String, dynamic>),
+      materializedArtifactDigest: json['materializedArtifactDigest'] as String?,
+      contentState: json['contentState'] as String?,
     );
 
 Map<String, dynamic> _$ToolWithApiKeyDtoToJson(ToolWithApiKeyDto instance) {
@@ -372,6 +470,11 @@ Map<String, dynamic> _$ToolWithApiKeyDtoToJson(ToolWithApiKeyDto instance) {
 
   writeNotNull('serverId', instance.serverId);
   writeNotNull('server', instance.server?.toJson());
+  writeNotNull(
+    'materializedArtifactDigest',
+    instance.materializedArtifactDigest,
+  );
+  writeNotNull('contentState', instance.contentState);
   return val;
 }
 

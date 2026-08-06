@@ -4,7 +4,6 @@ import 'package:opentool_daemon/src/controller/server_controller.dart';
 import 'package:opentool_daemon/src/middleware.dart';
 import 'package:opentool_daemon/src/service/server_service.dart';
 import 'package:opentool_daemon/src/service/manage_service.dart';
-import 'package:opentool_daemon/src/storage/hive_storage.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart';
 import 'package:shelf_router/shelf_router.dart';
@@ -14,8 +13,13 @@ import 'controller/manage_controller.dart';
 import 'controller/tool_controller.dart';
 import 'router.dart';
 import 'service/tool_service.dart';
-import 'service/hub_install_service.dart';
+import 'service/hub_pull_service.dart';
+import 'service/artifact_registry_service.dart';
+import 'service/builtin_reconcile_service.dart';
+import 'service/tool_materialization_service.dart';
 import 'storage/cache_storage.dart';
+import 'storage/artifact_storage.dart';
+import 'storage/registry_storage.dart';
 
 class DaemonServer {
   late HttpServer server;
@@ -28,42 +32,69 @@ class DaemonServer {
     String serverPrefix = SERVER_PREFIX;
     String toolPrefix = TOOL_PREFIX;
 
-    HiveServerStorage hiveServerStorage = HiveServerStorage();
-    await hiveServerStorage.init();
-    HiveToolStorage hiveToolStorage = HiveToolStorage();
-    await hiveToolStorage.init();
-    HiveInternalServerStorage hiveInternalServerStorage =
-        HiveInternalServerStorage();
-    await hiveInternalServerStorage.init();
-
-    final cacheServerStorage = CacheServerStorage(hiveServerStorage);
-    final cacheToolStorage = CacheToolStorage(hiveToolStorage);
+    final storage = RegistryStorageBundle(OPENTOOL_PATH);
+    await storage.init();
+    final artifactStorage = ArtifactStorage(OPENTOOL_PATH);
+    final cacheServerStorage = CacheServerStorage(storage.servers);
+    final cacheToolStorage = CacheToolStorage(storage.tools);
     late ServerService serverService;
-    final ToolService toolService = ToolService(
-      hiveToolStorage,
+    late ToolService toolService;
+    final registry = ArtifactRegistryService(
+      content: artifactStorage,
+      artifacts: storage.artifacts,
+      servers: cacheServerStorage,
+      operations: storage.operations,
+      tools: cacheToolStorage,
+      onServersChanged: () async {
+        await toolService.repairServerAssociations(await serverService.list());
+      },
+    );
+    final materialization = ToolMaterializationService(
+      dataDir: OPENTOOL_PATH,
+      tools: cacheToolStorage,
+      operations: storage.operations,
+    );
+    await materialization.recover();
+    toolService = ToolService(
+      cacheToolStorage,
       cacheToolStorage: cacheToolStorage,
       serverGetter: (serverId) => serverService.get(serverId),
       serverLister: () => serverService.list(),
+      materializationService: materialization,
     );
     serverService = ServerService(
-      hiveServerStorage,
-      hiveInternalServerStorage,
+      storage.servers,
       cacheServerStorage: cacheServerStorage,
       toolStorage: cacheToolStorage,
       onServersChanged: toolService.repairServerAssociations,
+      artifactRegistry: registry,
     );
+    final builtinService = BuiltinReconcileService(
+      registry: registry,
+      content: artifactStorage,
+      servers: cacheServerStorage,
+      bundles: storage.builtinBundles,
+    );
+    await builtinService.recover();
     await serverService.reconcileInstallations();
     await toolService.repairServerAssociations(await serverService.list());
-    ManageService manageService = ManageService(version);
-    final hubInstallService = HubInstallService(
+    ManageService manageService = ManageService(
+      version,
+      apiKeyStorage: storage.apiKeys,
+    );
+    final hubPullService = HubPullService(
       serverService: serverService,
       daemonVersion: version,
     );
+    final hostAuthenticator =
+        await HostManagementAuthenticator.fromEnvironment();
 
     ManageController manageController = ManageController(manageService);
     ServerController serverController = ServerController(
       serverService,
-      hubInstallService: hubInstallService,
+      hubPullService: hubPullService,
+      builtinReconcileService: builtinService,
+      hostAuthenticator: hostAuthenticator,
     );
     ToolController toolController = ToolController(
       toolService,

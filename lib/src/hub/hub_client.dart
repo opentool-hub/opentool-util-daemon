@@ -2,7 +2,7 @@ import 'package:dio/dio.dart';
 
 import 'dto.dart';
 import 'exception.dart';
-import '../service/install_cancellation.dart';
+import '../service/pull_cancellation.dart';
 
 class HubClient {
   final Dio _dio;
@@ -53,7 +53,7 @@ class HubClient {
     required String arch,
     required String abi,
     required String client,
-    InstallCancellationToken? cancellation,
+    PullCancellationToken? cancellation,
   }) async {
     final segments = <String>[
       ..._baseUri.pathSegments.where((segment) => segment.isNotEmpty),
@@ -94,7 +94,7 @@ class HubClient {
         );
       }
       return ResolveResult.fromJson(data);
-    } on InstallCancelledException {
+    } on PullCancelledException {
       throw const HubApiException(
         code: 'INSTALL_CANCELLED',
         message: 'Installation was cancelled',

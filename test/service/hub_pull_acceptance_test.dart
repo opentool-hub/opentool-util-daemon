@@ -7,7 +7,7 @@ import 'package:opentool_daemon/src/constants.dart';
 import 'package:opentool_daemon/src/hub/hub_client.dart';
 import 'package:opentool_daemon/src/service/artifact_downloader.dart';
 import 'package:opentool_daemon/src/service/exception.dart';
-import 'package:opentool_daemon/src/service/hub_install_service.dart';
+import 'package:opentool_daemon/src/service/hub_pull_service.dart';
 import 'package:opentool_daemon/src/service/model.dart';
 import 'package:opentool_daemon/src/service/server_service.dart';
 import 'package:opentool_daemon/src/service/tool_service.dart';
@@ -21,7 +21,7 @@ import 'package:opentool_dart/opentool_client.dart';
 import '../test_doubles.dart';
 
 void main() {
-  group('Hub install acceptance', () {
+  group('Hub pull acceptance', () {
     for (final target in const [
       (os: 'macos', arch: 'arm64', abi: 'native'),
       (os: 'linux', arch: 'arm64', abi: 'glibc'),
@@ -31,15 +31,13 @@ void main() {
         () async {
           final fixture = await _HubFixture.start(target: target);
           try {
-            final serverStorage = StubHiveServerStorage();
-            final internalStorage = StubHiveInternalServerStorage();
-            final service = fixture.installService(
-              serverStorage,
-              internalStorage,
+            final harness = await TestRegistryHarness.create(
+              root: Directory(fixture.dataDir),
             );
-            final events = <HubInstallEvent>[];
+            final service = fixture.pullService(harness.serverService);
+            final events = <PullEvent>[];
 
-            final installed = await service.install(
+            final installed = await service.pull(
               fixture.request,
               onEvent: events.add,
             );
@@ -57,20 +55,25 @@ void main() {
                 'resolving',
                 'downloading',
                 'verifying',
-                'importing',
-                'installed',
+                'registering',
+                'ready',
               ]),
             );
 
-            final internal = await internalStorage.get(installed.internalId);
-            expect(internal, isNotNull);
-            expect(await File(internal!.file).exists(), isTrue);
+            final artifact = await harness.artifacts.get(
+              installed.artifactDigest!,
+            );
+            expect(artifact, isNotNull);
+            expect(await File(artifact!.filePath).exists(), isTrue);
             expect(
-              (await ZipUtil.inspect(internal.file)).files,
+              (await ZipUtil.inspect(artifact.filePath)).files,
               contains('tool'),
             );
 
-            final restarted = ServerService(serverStorage, internalStorage);
+            final restarted = ServerService(
+              harness.servers,
+              artifactRegistry: harness.registry,
+            );
             await restarted.reconcileInstallations();
             final afterRestart = await restarted.list();
             expect(afterRestart, hasLength(1));
@@ -88,15 +91,16 @@ void main() {
         target: const (os: 'linux', arch: 'arm64', abi: 'glibc'),
         includeEntrypoint: false,
       );
-      final serverStorage = StubHiveServerStorage();
-      final internalStorage = StubHiveInternalServerStorage();
+      final harness = await TestRegistryHarness.create(
+        root: Directory(fixture.dataDir),
+      );
       try {
         await expectLater(
           fixture
-              .installService(serverStorage, internalStorage)
-              .install(fixture.request, onEvent: (_) {}),
+              .pullService(harness.serverService)
+              .pull(fixture.request, onEvent: (_) {}),
           throwsA(
-            isA<InstallException>().having(
+            isA<ArtifactOperationException>().having(
               (error) => error.code,
               'code',
               'ARTIFACT_INVALID',
@@ -104,8 +108,8 @@ void main() {
           ),
         );
 
-        expect(await serverStorage.list(), isEmpty);
-        expect(await internalStorage.list(), isEmpty);
+        expect(await harness.servers.list(), isEmpty);
+        expect(await harness.artifacts.list(), isEmpty);
         expect(await _managedFiles(fixture.dataDir), isEmpty);
       } finally {
         await fixture.dispose();
@@ -117,23 +121,27 @@ void main() {
         target: const (os: 'linux', arch: 'arm64', abi: 'glibc'),
       );
       final serverStorage = _FailingServerStorage();
-      final internalStorage = StubHiveInternalServerStorage();
+      final harness = await TestRegistryHarness.create(
+        root: Directory(fixture.dataDir),
+        serverStorage: serverStorage,
+      );
       try {
         await expectLater(
           fixture
-              .installService(serverStorage, internalStorage)
-              .install(fixture.request, onEvent: (_) {}),
+              .pullService(harness.serverService)
+              .pull(fixture.request, onEvent: (_) {}),
           throwsA(
-            isA<InstallException>().having(
+            isA<ArtifactOperationException>().having(
               (error) => error.code,
               'code',
-              'DISK_WRITE_FAILED',
+              'REGISTER_FAILED',
             ),
           ),
         );
 
+        await harness.registry.recover();
         expect(await serverStorage.list(), isEmpty);
-        expect(await internalStorage.list(), isEmpty);
+        expect(await harness.artifacts.list(), isEmpty);
         expect(await _managedFiles(fixture.dataDir), isEmpty);
       } finally {
         await fixture.dispose();
@@ -153,16 +161,17 @@ void main() {
           target: target,
           toolContent: _runtimeToolSource,
         );
-        final serverStorage = StubHiveServerStorage();
-        final internalStorage = StubHiveInternalServerStorage();
-        final toolStorage = StubHiveToolStorage();
+        final harness = await TestRegistryHarness.create(
+          root: Directory(fixture.dataDir),
+        );
+        final toolStorage = MemoryToolStorage();
         ToolService? toolService;
         String? toolId;
         try {
-          final serverService = ServerService(serverStorage, internalStorage);
+          final serverService = harness.serverService;
           final installed = await fixture
-              .installService(serverStorage, internalStorage)
-              .install(fixture.request, onEvent: (_) {});
+              .pullService(serverService)
+              .pull(fixture.request, onEvent: (_) {});
           expect(await serverService.list(), hasLength(1));
 
           toolService = ToolService(
@@ -197,7 +206,10 @@ void main() {
             ToolStatusType.NOT_RUNNING,
           );
 
-          final restarted = ServerService(serverStorage, internalStorage);
+          final restarted = ServerService(
+            harness.servers,
+            artifactRegistry: harness.registry,
+          );
           await restarted.reconcileInstallations();
           expect(await restarted.list(), hasLength(1));
           expect((await restarted.list()).single.id, installed.id);
@@ -265,7 +277,7 @@ class _HubFixture {
         'run': {
           'envs': <String, String>{},
           'workdir': '.',
-          'entrypoint': 'tool',
+          'entrypoint': includeEntrypoint ? 'tool' : 'bin/tool',
           'cmds': <String>[],
         },
       }),
@@ -323,7 +335,7 @@ class _HubFixture {
 
   String get registry => 'http://${server.address.host}:${server.port}';
 
-  HubInstallRequest get request => HubInstallRequest.validate(
+  HubPullRequest get request => HubPullRequest.validate(
     registry: registry,
     namespace: 'litevar',
     name: 'demo',
@@ -331,12 +343,8 @@ class _HubFixture {
     client: 'embedded',
   );
 
-  HubInstallService installService(
-    StubHiveServerStorage serverStorage,
-    StubHiveInternalServerStorage internalStorage,
-  ) {
-    final serverService = ServerService(serverStorage, internalStorage);
-    return HubInstallService(
+  HubPullService pullService(ServerService serverService) {
+    return HubPullService(
       serverService: serverService,
       daemonVersion: 'test',
       platformDetector: PlatformDetector(
@@ -359,7 +367,9 @@ class _HubFixture {
   }
 }
 
-class _FailingServerStorage extends StubHiveServerStorage {
+class _FailingServerStorage extends MemoryStorage<ServerDao> {
+  _FailingServerStorage() : super((value) => value.id);
+
   @override
   Future<void> add(ServerDao serverDao) {
     throw const FileSystemException('simulated database write failure');
@@ -367,10 +377,17 @@ class _FailingServerStorage extends StubHiveServerStorage {
 }
 
 Future<List<FileSystemEntity>> _managedFiles(String dataDir) async {
-  final serverDir = Directory(p.join(dataDir, SERVER_FOLDER));
+  final artifactDir = Directory(p.join(dataDir, 'artifacts'));
   final downloadDir = Directory(p.join(dataDir, 'downloads'));
   final files = <FileSystemEntity>[];
-  if (await serverDir.exists()) files.addAll(await serverDir.list().toList());
+  if (await artifactDir.exists()) {
+    files.addAll(
+      await artifactDir
+          .list(recursive: true)
+          .where((entity) => entity is File)
+          .toList(),
+    );
+  }
   if (await downloadDir.exists()) {
     files.addAll(await downloadDir.list().toList());
   }

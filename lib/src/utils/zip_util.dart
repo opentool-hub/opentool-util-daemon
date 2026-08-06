@@ -18,6 +18,16 @@ class ZipUtil {
   static const int maxUncompressedSize = 2 * 1024 * 1024 * 1024;
   static const int maxManifestSize = 1024 * 1024;
 
+  static String archivePath(
+    String sourcePath,
+    String entityPath, {
+    p.Context? context,
+  }) {
+    final pathContext = context ?? p.context;
+    final relativePath = pathContext.relative(entityPath, from: sourcePath);
+    return p.posix.joinAll(pathContext.split(relativePath));
+  }
+
   static Future<void> zipDirectory(
     String sourceDirPath,
     String zipFilePath,
@@ -35,7 +45,7 @@ class ZipUtil {
       followLinks: false,
     )) {
       if (entity is File) {
-        final relativePath = p.relative(entity.path, from: sourceDirPath);
+        final relativePath = archivePath(sourceDirPath, entity.path);
         final data = await entity.readAsBytes();
         archive.addFile(ArchiveFile(relativePath, data.length, data));
       }

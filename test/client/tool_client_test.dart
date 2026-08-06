@@ -21,9 +21,9 @@ void main() {
               'status': 'running',
               'serverId': 'server-1',
               'server': {
-                'repo': 'hub/opentool',
+                'namespace': 'hub/opentool',
                 'name': 'demo',
-                'tag': '1.0.0',
+                'version': '1.0.0',
               },
             },
           ];
@@ -37,9 +37,9 @@ void main() {
 
       expect(captured?.queryParameters['all'], equals('1'));
       expect(tools.single.id, equals('tool-1'));
-      expect(tools.single.server?.repo, equals('hub/opentool'));
+      expect(tools.single.server?.namespace, equals('hub/opentool'));
       expect(tools.single.server?.name, equals('demo'));
-      expect(tools.single.server?.tag, equals('1.0.0'));
+      expect(tools.single.server?.version, equals('1.0.0'));
     });
 
     test('listToolWithApiKeys sets daemon api key header', () async {
@@ -58,9 +58,9 @@ void main() {
               'status': 'running',
               'serverId': 'server-1',
               'server': {
-                'repo': 'hub/opentool',
+                'namespace': 'hub/opentool',
                 'name': 'demo',
-                'tag': '1.0.0',
+                'version': '1.0.0',
               },
             },
           ];
@@ -78,9 +78,9 @@ void main() {
       expect(captured?.queryParameters['all'], equals('1'));
       expect(captured?.headers['x-opentool-api-key'], equals('admin'));
       expect(tools.single.apiKey, equals('key-1'));
-      expect(tools.single.server?.repo, equals('hub/opentool'));
+      expect(tools.single.server?.namespace, equals('hub/opentool'));
       expect(tools.single.server?.name, equals('demo'));
-      expect(tools.single.server?.tag, equals('1.0.0'));
+      expect(tools.single.server?.version, equals('1.0.0'));
     });
 
     test('setAliasTool posts the alias as a query parameter', () async {

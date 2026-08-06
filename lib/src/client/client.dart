@@ -147,26 +147,13 @@ class DaemonClient {
     return ServerIdDto.fromJson(response.data);
   }
 
-  /// POST /servers/{server_id}/tag?tag=<target_tag>
-  Future<OpenToolServerDto> tagServer(String serverId, String? tag) async {
-    Map<String, dynamic>? queryParameters;
-    if (tag != null && tag.isNotEmpty) {
-      queryParameters = {'tag': tag};
-    }
-    Response response = await serverDio.post(
-      '/$serverId/tag',
-      queryParameters: queryParameters,
-    );
-    return OpenToolServerDto.fromJson(response.data);
-  }
-
   /// POST /servers/pull
   Future<void> pullServer(
     PullInfoDto pullInfo, {
     required void Function(PullStartDto pullStart) onStart,
     required void Function(PullDownloadDto pullDownload) onDownload,
     required void Function(PullDoneDto result) onDone,
-    required void Function(PullErrorDto error) onInstallError,
+    required void Function(PullErrorDto error) onPullError,
     void Function(Object error, StackTrace stackTrace)? onError,
   }) async {
     try {
@@ -188,7 +175,7 @@ class DaemonClient {
               if (!completed.isCompleted) completed.complete();
             } else if (event == EventType.ERROR) {
               terminalReceived = true;
-              onInstallError(PullErrorDto.fromJson(data));
+              onPullError(PullErrorDto.fromJson(data));
               if (!completed.isCompleted) completed.complete();
             }
           };

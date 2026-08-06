@@ -15,11 +15,11 @@ import '../test_doubles.dart';
 
 void main() {
   group('ToolService', () {
-    late StubHiveToolStorage hiveToolStorage;
+    late MemoryToolStorage hiveToolStorage;
     late ToolService service;
 
     setUp(() {
-      hiveToolStorage = StubHiveToolStorage();
+      hiveToolStorage = MemoryToolStorage();
       hiveToolStorage.seed([
         ToolDao(
           id: 'tool-1',
@@ -184,7 +184,7 @@ void main() {
     group('logical server idempotency', () {
       late Directory tempDir;
       late String originalOpenToolPath;
-      late StubHiveToolStorage storage;
+      late MemoryToolStorage storage;
       late ToolService idempotentService;
       late ServerModel server;
       late Map<String, _MutableHealthClient> clients;
@@ -198,7 +198,7 @@ void main() {
           '$OPENTOOL_PATH/$SERVER_FOLDER',
         ).create(recursive: true);
         await Directory('$OPENTOOL_PATH/$TOOL_FOLDER').create(recursive: true);
-        storage = StubHiveToolStorage();
+        storage = MemoryToolStorage();
         clients = {};
         processStarts = 0;
         idempotentService = ToolService(
@@ -221,9 +221,9 @@ void main() {
           id: 'server-current',
           alias: 'server-current',
           registry: NULL_REGISTRY,
-          repo: NULL_REPO,
+          namespace: NULL_REPO,
           name: 'demo-tool',
-          tag: '1.0.0',
+          version: '1.0.0',
           internalId: 'internal-1',
         );
         await _writeServerBundle(server);
@@ -377,9 +377,9 @@ void main() {
             id: 'server-other',
             alias: 'server-other',
             registry: NULL_REGISTRY,
-            repo: NULL_REPO,
+            namespace: NULL_REPO,
             name: 'other-tool',
-            tag: '1.0.0',
+            version: '1.0.0',
             internalId: 'internal-other',
           );
           await _writeServerBundle(otherServer);
@@ -446,9 +446,9 @@ void main() {
             id: 'server-concurrent-run',
             alias: 'server-concurrent-run',
             registry: NULL_REGISTRY,
-            repo: NULL_REPO,
+            namespace: NULL_REPO,
             name: 'concurrent-run-tool',
-            tag: '1.0.0',
+            version: '1.0.0',
             internalId: 'internal-concurrent-run',
           );
           await _writeServerBundle(otherServer);
@@ -602,7 +602,7 @@ void main() {
       });
 
       test('start persists starting before running', () async {
-        final recordingStorage = _RecordingHiveToolStorage();
+        final recordingStorage = _RecordingToolStorage();
         final dao = _toolDao(
           'tool-state-transition',
           server,
@@ -909,7 +909,7 @@ void main() {
         final orphan = ToolDao(
           id: 'tool-orphan-workspace',
           alias: 'tool-orphan-workspace',
-          tag: server.tag,
+          tag: server.version,
           host: HostType.LOCALHOST,
           port: 9010,
           apiKey: 'key',
@@ -927,7 +927,7 @@ void main() {
         expect(repaired, 1);
         expect(restored.serverId, server.id);
         expect(restored.serverName, server.name);
-        expect(restored.serverTag, server.tag);
+        expect(restored.serverVersion, server.version);
       });
 
       test(
@@ -937,15 +937,15 @@ void main() {
             id: 'server-retagged',
             alias: 'server-retagged',
             registry: server.registry,
-            repo: server.repo,
+            namespace: server.namespace,
             name: server.name,
-            tag: '2.0.0',
+            version: '2.0.0',
             internalId: server.internalId,
           );
           final legacy = ToolDao(
             id: 'tool-old-version',
             alias: 'tool-old-version',
-            tag: server.tag,
+            tag: server.version,
             host: HostType.LOCALHOST,
             port: 9010,
             apiKey: 'key',
@@ -959,7 +959,7 @@ void main() {
 
           final restored = (await storage.get(legacy.id))!;
           expect(restored.serverId, server.id);
-          expect(restored.serverTag, server.tag);
+          expect(restored.serverVersion, server.version);
         },
       );
     });
@@ -1085,7 +1085,7 @@ class _DelayedStopClient extends OpenToolClient {
   }
 }
 
-class _RecordingHiveToolStorage extends StubHiveToolStorage {
+class _RecordingToolStorage extends MemoryToolStorage {
   final List<String> statuses = [];
 
   @override
@@ -1098,16 +1098,16 @@ class _RecordingHiveToolStorage extends StubHiveToolStorage {
 ToolDao _toolDao(String id, ServerModel server, String status) => ToolDao(
   id: id,
   alias: id,
-  tag: server.tag,
+  tag: server.version,
   host: HostType.LOCALHOST,
   port: 9010,
   apiKey: 'key-$id',
   status: status,
   serverId: server.id,
   serverRegistry: server.registry,
-  serverRepo: server.repo,
+  serverNamespace: server.namespace,
   serverName: server.name,
-  serverTag: server.tag,
+  serverVersion: server.version,
 );
 
 Future<void> _writeServerBundle(ServerModel server) async {
@@ -1117,6 +1117,7 @@ Future<void> _writeServerBundle(ServerModel server) async {
     final target =
         '$OPENTOOL_PATH/$SERVER_FOLDER/${server.name}-${server.internalId}.ots';
     await ZipUtil.zipDirectory(source.path, target);
+    server.artifactFilePath = target;
   } finally {
     await source.delete(recursive: true);
   }
@@ -1132,7 +1133,7 @@ Future<void> _writeConfigAndEntrypoint(String root, ServerModel server) async {
   await directory.create(recursive: true);
   final config = OpentoolfileConfig(
     name: server.name,
-    tag: server.tag,
+    tag: server.version,
     os: Platform.operatingSystem,
     cpuArch: 'test',
     build: OpenToolBuild(),

@@ -27,7 +27,7 @@ class PlatformDetector {
   Future<ServerPlatform> detect() async {
     final os = operatingSystem;
     if (os != 'macos' && os != 'windows' && os != 'linux') {
-      throw InstallException(
+      throw ArtifactOperationException(
         code: 'PLATFORM_NOT_SUPPORTED',
         message: 'Unsupported operating system: $os',
         retryable: false,
@@ -40,7 +40,7 @@ class PlatformDetector {
     } else if (abiName.contains('x64')) {
       arch = 'x64';
     } else {
-      throw InstallException(
+      throw ArtifactOperationException(
         code: 'PLATFORM_NOT_SUPPORTED',
         message: 'Unsupported CPU architecture: $abiName',
         retryable: false,
@@ -77,7 +77,7 @@ class PlatformDetector {
         }
       } catch (_) {}
     }
-    throw const InstallException(
+    throw const ArtifactOperationException(
       code: 'PLATFORM_NOT_SUPPORTED',
       message:
           'Unable to determine Linux ABI; set OPENTOOL_LINUX_ABI to glibc or musl',

@@ -2,9 +2,22 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:opentool_daemon/src/utils/zip_util.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  test('archivePath converts Windows filesystem paths to ZIP paths', () {
+    final windows = p.Context(style: p.Style.windows);
+
+    final archivePath = ZipUtil.archivePath(
+      r'C:\src\tool',
+      r'C:\src\tool\bin\demo.exe',
+      context: windows,
+    );
+
+    expect(archivePath, 'bin/demo.exe');
+  });
+
   test('zipDirectory creates parent directories for the target file', () async {
     final sourceDir = await Directory.systemTemp.createTemp('zip-src');
     final nested = File('${sourceDir.path}/hello.txt');

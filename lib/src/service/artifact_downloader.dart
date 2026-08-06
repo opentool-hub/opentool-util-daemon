@@ -7,7 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:unique_id_dart/unique_id_dart.dart';
 
 import 'exception.dart';
-import 'install_cancellation.dart';
+import 'pull_cancellation.dart';
 
 class ArtifactDownloader {
   final Dio? _providedDio;
@@ -21,12 +21,12 @@ class ArtifactDownloader {
     required String expectedDigest,
     required void Function(int downloadedBytes, int totalBytes) onProgress,
     required void Function() onVerifying,
-    InstallCancellationToken? cancellation,
+    PullCancellationToken? cancellation,
   }) async {
     cancellation?.throwIfCancelled();
     final uri = Uri.tryParse(downloadUrl);
     if (uri == null || !_isAllowedUri(uri)) {
-      throw const InstallException(
+      throw const ArtifactOperationException(
         code: 'ARTIFACT_DOWNLOAD_FAILED',
         message: 'Hub returned an invalid artifact download URL',
         retryable: true,
@@ -34,7 +34,7 @@ class ArtifactDownloader {
     }
     if (expectedSize <= 0 ||
         !RegExp(r'^sha256:[a-f0-9]{64}$').hasMatch(expectedDigest)) {
-      throw const InstallException(
+      throw const ArtifactOperationException(
         code: 'HUB_INVALID_RESPONSE',
         message: 'Hub returned invalid artifact integrity metadata',
         retryable: true,
@@ -64,7 +64,7 @@ class ArtifactDownloader {
       final response = await _getFollowingSafeRedirects(dio, uri, cancelToken);
       final body = response.data;
       if (body == null) {
-        throw const InstallException(
+        throw const ArtifactOperationException(
           code: 'ARTIFACT_DOWNLOAD_FAILED',
           message: 'Artifact response body is empty',
           retryable: true,
@@ -82,7 +82,7 @@ class ArtifactDownloader {
           final chunk = iterator.current;
           downloaded += chunk.length;
           if (downloaded > expectedSize) {
-            throw InstallException(
+            throw ArtifactOperationException(
               code: 'ARTIFACT_SIZE_MISMATCH',
               message:
                   'Downloaded artifact is larger than the Hub metadata ($expectedSize bytes)',
@@ -107,7 +107,7 @@ class ArtifactDownloader {
       sink = null;
 
       if (downloaded != expectedSize) {
-        throw InstallException(
+        throw ArtifactOperationException(
           code: 'ARTIFACT_SIZE_MISMATCH',
           message:
               'Downloaded artifact size $downloaded does not match Hub metadata $expectedSize',
@@ -120,7 +120,7 @@ class ArtifactDownloader {
       cancellation?.throwIfCancelled();
       final actualDigest = 'sha256:$digest';
       if (actualDigest != expectedDigest) {
-        throw const InstallException(
+        throw const ArtifactOperationException(
           code: 'ARTIFACT_DIGEST_MISMATCH',
           message: 'Downloaded artifact digest does not match Hub metadata',
           retryable: true,
@@ -128,42 +128,42 @@ class ArtifactDownloader {
       }
       completed = true;
       return partFile.path;
-    } on InstallCancelledException {
-      throw const InstallException(
+    } on PullCancelledException {
+      throw const ArtifactOperationException(
         code: 'INSTALL_CANCELLED',
         message: 'Installation was cancelled',
         retryable: false,
       );
-    } on InstallException {
+    } on ArtifactOperationException {
       rethrow;
     } on FileSystemException catch (error) {
-      throw InstallException(
+      throw ArtifactOperationException(
         code: 'DISK_WRITE_FAILED',
         message: 'Unable to write the artifact: ${error.message}',
         retryable: true,
       );
     } on IOException {
       if (cancellation?.isCancelled ?? false) {
-        throw const InstallException(
+        throw const ArtifactOperationException(
           code: 'INSTALL_CANCELLED',
           message: 'Installation was cancelled',
           retryable: false,
         );
       }
-      throw const InstallException(
+      throw const ArtifactOperationException(
         code: 'ARTIFACT_DOWNLOAD_FAILED',
         message: 'Artifact download was interrupted',
         retryable: true,
       );
     } on DioException catch (error) {
       if ((cancellation?.isCancelled ?? false) || CancelToken.isCancel(error)) {
-        throw const InstallException(
+        throw const ArtifactOperationException(
           code: 'INSTALL_CANCELLED',
           message: 'Installation was cancelled',
           retryable: false,
         );
       }
-      throw InstallException(
+      throw ArtifactOperationException(
         code: 'ARTIFACT_DOWNLOAD_FAILED',
         message: error.response?.statusCode == null
             ? 'Artifact download failed'
@@ -214,7 +214,7 @@ class ArtifactDownloader {
       final location = response.headers.value(HttpHeaders.locationHeader);
       await response.data?.stream.drain<void>();
       if (location == null || redirects == 5) {
-        throw const InstallException(
+        throw const ArtifactOperationException(
           code: 'ARTIFACT_DOWNLOAD_FAILED',
           message: 'Artifact download returned an invalid redirect',
           retryable: true,
@@ -222,7 +222,7 @@ class ArtifactDownloader {
       }
       final redirected = current.resolve(location);
       if (!_isAllowedUri(redirected)) {
-        throw const InstallException(
+        throw const ArtifactOperationException(
           code: 'ARTIFACT_DOWNLOAD_FAILED',
           message: 'Artifact download redirect is invalid',
           retryable: true,
@@ -230,7 +230,7 @@ class ArtifactDownloader {
       }
       current = redirected;
     }
-    throw const InstallException(
+    throw const ArtifactOperationException(
       code: 'ARTIFACT_DOWNLOAD_FAILED',
       message: 'Artifact download exceeded the redirect limit',
       retryable: true,

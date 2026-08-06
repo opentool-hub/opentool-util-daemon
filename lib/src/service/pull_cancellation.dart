@@ -1,8 +1,8 @@
-class InstallCancelledException implements Exception {
-  const InstallCancelledException();
+class PullCancelledException implements Exception {
+  const PullCancelledException();
 }
 
-class InstallCancellationToken {
+class PullCancellationToken {
   bool _cancelled = false;
   final List<void Function()> _listeners = [];
 
@@ -19,7 +19,7 @@ class InstallCancellationToken {
   }
 
   void throwIfCancelled() {
-    if (_cancelled) throw const InstallCancelledException();
+    if (_cancelled) throw const PullCancelledException();
   }
 
   void Function() onCancel(void Function() listener) {

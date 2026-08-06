@@ -8,14 +8,10 @@ class ServerIdentity {
 
   ServerIdentity({
     required this.registry,
-    String? namespace,
-    @Deprecated('Use namespace') String? repo,
+    required this.namespace,
     required this.name,
-    String? version,
-    @Deprecated('Use version') String? tag,
-  }) : namespace =
-           namespace ?? repo ?? (throw ArgumentError.notNull('namespace')),
-       version = version ?? tag ?? (throw ArgumentError.notNull('version'));
+    required this.version,
+  });
 
   factory ServerIdentity.fromServer(ServerModel server) => ServerIdentity(
     registry: server.registry,
@@ -37,12 +33,6 @@ class ServerIdentity {
 
   @override
   String toString() => '$registry/$namespace/$name:$version';
-
-  @Deprecated('Use namespace')
-  String get repo => namespace;
-
-  @Deprecated('Use version')
-  String get tag => version;
 }
 
 class ServerPlatform {
@@ -113,8 +103,20 @@ class ToolLifecycleEventReason {
 class VersionModel {
   String name;
   String version;
+  int apiVersion;
+  List<String> capabilities;
 
-  VersionModel({required this.name, required this.version});
+  VersionModel({
+    required this.name,
+    required this.version,
+    this.apiVersion = 2,
+    this.capabilities = const [
+      'artifactRegistryV2',
+      'builtinReconcileV1',
+      'pullSseV1',
+      'toolMaterializationV1',
+    ],
+  });
 }
 
 class ServerModel {
@@ -131,17 +133,28 @@ class ServerModel {
   String? artifactMediaType;
   int? artifactSize;
   ServerPlatform? platform;
-  DateTime? installedAt;
+  String sourceKind;
+  String sourceKey;
+  bool protected;
+  String managedBy;
+  String state;
+  DateTime? createdAt;
+  String? builtinBundleFamily;
+  String? builtinBundleId;
+  String? builtinKey;
+  String? artifactFilePath;
+  DateTime? artifactVerifiedAt;
+  int artifactReferenceCount;
+  bool canRun;
+  bool canRemove;
 
   ServerModel({
     required this.id,
     required this.alias,
     required this.registry,
-    String? namespace,
-    @Deprecated('Use namespace') String? repo,
+    required this.namespace,
     required this.name,
-    String? version,
-    @Deprecated('Use version') String? tag,
+    required this.version,
     required this.internalId,
     this.artifactId,
     this.versionDigest,
@@ -149,48 +162,61 @@ class ServerModel {
     this.artifactMediaType,
     this.artifactSize,
     this.platform,
-    this.installedAt,
-  }) : namespace =
-           namespace ?? repo ?? (throw ArgumentError.notNull('namespace')),
-       version = version ?? tag ?? (throw ArgumentError.notNull('version'));
+    this.sourceKind = 'import',
+    this.sourceKey = '',
+    this.protected = false,
+    this.managedBy = 'user',
+    this.state = 'available',
+    this.createdAt,
+    this.builtinBundleFamily,
+    this.builtinBundleId,
+    this.builtinKey,
+    this.artifactFilePath,
+    this.artifactVerifiedAt,
+    this.artifactReferenceCount = 1,
+    this.canRun = true,
+    this.canRemove = true,
+  });
 
-  @Deprecated('Use namespace')
-  String get repo => namespace;
-
-  @Deprecated('Use namespace')
-  set repo(String value) => namespace = value;
-
-  @Deprecated('Use version')
-  String get tag => version;
-
-  @Deprecated('Use version')
-  set tag(String value) => version = value;
-
-  factory ServerModel.fromDao(ServerDao dao) {
+  factory ServerModel.fromDao(
+    ServerDao dao, {
+    ArtifactDao? artifact,
+    int artifactReferenceCount = 1,
+  }) {
     return ServerModel(
       id: dao.id,
       alias: dao.alias,
-      registry: dao.registry,
+      registry: dao.registry ?? '',
       namespace: dao.namespace,
       name: dao.name,
       version: dao.version,
-      internalId: dao.internalId,
-      artifactId: dao.artifactId,
+      internalId: dao.artifactDigest,
+      artifactId: dao.hubArtifactId,
       versionDigest: dao.versionDigest,
       artifactDigest: dao.artifactDigest,
-      artifactMediaType: dao.artifactMediaType,
-      artifactSize: dao.artifactSize,
-      platform:
-          dao.platformOs == null ||
-              dao.platformArch == null ||
-              dao.platformAbi == null
+      artifactMediaType: artifact?.mediaType,
+      artifactSize: artifact?.size,
+      platform: artifact == null
           ? null
           : ServerPlatform(
-              os: dao.platformOs!,
-              arch: dao.platformArch!,
-              abi: dao.platformAbi!,
+              os: artifact.platformOs,
+              arch: artifact.platformArch,
+              abi: artifact.platformAbi,
             ),
-      installedAt: dao.installedAt,
+      sourceKind: dao.sourceKind,
+      sourceKey: dao.sourceKey,
+      protected: dao.protected,
+      managedBy: dao.managedBy,
+      state: dao.state,
+      createdAt: dao.createdAt,
+      builtinBundleFamily: dao.builtinBundleFamily,
+      builtinBundleId: dao.builtinBundleId,
+      builtinKey: dao.builtinKey,
+      artifactFilePath: artifact?.filePath,
+      artifactVerifiedAt: artifact?.verifiedAt,
+      artifactReferenceCount: artifactReferenceCount,
+      canRun: dao.state == 'available' && artifact != null,
+      canRemove: !dao.protected,
     );
   }
 
@@ -198,20 +224,22 @@ class ServerModel {
     return ServerDao(
       id: id,
       alias: alias,
-      registry: registry,
       namespace: namespace,
       name: name,
       version: version,
-      internalId: internalId,
-      artifactId: artifactId,
+      artifactDigest: artifactDigest ?? internalId,
+      sourceKind: sourceKind,
+      sourceKey: sourceKey,
+      registry: registry.isEmpty ? null : registry,
       versionDigest: versionDigest,
-      artifactDigest: artifactDigest,
-      artifactMediaType: artifactMediaType,
-      artifactSize: artifactSize,
-      platformOs: platform?.os,
-      platformArch: platform?.arch,
-      platformAbi: platform?.abi,
-      installedAt: installedAt,
+      hubArtifactId: artifactId,
+      protected: protected,
+      managedBy: managedBy,
+      state: state,
+      createdAt: createdAt ?? DateTime.now().toUtc(),
+      builtinBundleFamily: builtinBundleFamily,
+      builtinBundleId: builtinBundleId,
+      builtinKey: builtinKey,
     );
   }
 
@@ -229,9 +257,11 @@ class ToolModel {
   List<String>? extraCmds;
   String? serverId;
   String? serverRegistry;
-  String? serverRepo;
+  String? serverNamespace;
   String? serverName;
-  String? serverTag;
+  String? serverVersion;
+  String? materializedArtifactDigest;
+  String? contentState;
 
   ToolModel({
     required this.id,
@@ -244,24 +274,29 @@ class ToolModel {
     this.serverId,
     this.extraCmds,
     this.serverRegistry,
-    this.serverRepo,
+    this.serverNamespace,
     this.serverName,
-    this.serverTag,
+    this.serverVersion,
+    this.materializedArtifactDigest,
+    this.contentState,
   });
 
   ServerIdentity? get serverIdentity {
     final registry = serverRegistry;
-    final repo = serverRepo;
+    final namespace = serverNamespace;
     final name = serverName;
-    final tag = serverTag;
-    if (registry == null || repo == null || name == null || tag == null) {
+    final version = serverVersion;
+    if (registry == null ||
+        namespace == null ||
+        name == null ||
+        version == null) {
       return null;
     }
     return ServerIdentity(
       registry: registry,
-      namespace: repo,
+      namespace: namespace,
       name: name,
-      version: tag,
+      version: version,
     );
   }
 
@@ -276,12 +311,13 @@ class ToolModel {
       status: dao.status,
       serverId: dao.serverId,
       serverRegistry: dao.serverRegistry,
-      serverRepo: dao.serverRepo,
+      serverNamespace: dao.serverNamespace,
       serverName: dao.serverName,
-      serverTag: dao.serverTag,
+      serverVersion: dao.serverVersion,
       extraCmds: dao.extraCmds == null
           ? null
           : List<String>.from(dao.extraCmds!),
+      materializedArtifactDigest: dao.materializedArtifactDigest,
     );
   }
 
@@ -296,10 +332,11 @@ class ToolModel {
       status: status,
       serverId: serverId,
       serverRegistry: serverRegistry,
-      serverRepo: serverRepo,
+      serverNamespace: serverNamespace,
       serverName: serverName,
-      serverTag: serverTag,
+      serverVersion: serverVersion,
       extraCmds: extraCmds == null ? null : List<String>.from(extraCmds!),
+      materializedArtifactDigest: materializedArtifactDigest,
     );
   }
 }
