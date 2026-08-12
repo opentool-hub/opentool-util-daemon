@@ -28,7 +28,7 @@ dart run bin/opentool_daemon.dart --config bin/config.json
 - 只需写入你想覆盖的字段即可，其余保持默认，例如 `{ "server": { "port": 20000 } }` 只会修改端口。
 - `--config <path>` 与 `--config=<path>` 都会加载指定文件；显式指定的文件不存在或内容无效时，daemon 会启动失败，不会静默使用另一份配置。
 - 仓库内的 `bin/config.json` 固定使用 `127.0.0.1`。除非已有可靠的网络鉴权边界，否则不要把 daemon 暴露到非本机网络。
-- 发布构建使用编译期版本（当前为 `0.4.0`），AOT 二进制不依赖运行目录中的 `pubspec.yaml`。
+- 发布构建使用编译期版本（当前为 `0.5.0`），AOT 二进制不依赖运行目录中的 `pubspec.yaml`。
 
 ---
 
@@ -72,6 +72,15 @@ data:{"json":"payload"}
 
 可直接复用 `lib/src/client/client.dart` 实现的 Dart 客户端，或使用任意支持 SSE 的库处理这些事件。
 
+公开 Dart 客户端提供 typed `pullServerEvents` Stream；取消订阅会关闭底层 HTTP
+请求并触发 daemon 侧取消。`deleteServerDetailed` 会保留
+`artifactRemoved` 删除结果，HTTP 失败统一公开为带稳定 `code`、`message`、
+`retryable` 和 `statusCode` 的 `DaemonApiException`。
+
+新版 `startTool` 协议仅在 Tool 就绪且 daemon 发出 `DONE` 后完成；启动失败、
+等待超时，或流在终态事件前关闭，都会使客户端 Future 失败。所有客户端都必须
+使用这套 `DONE`/`ERROR` 终态语义。
+
 daemon 不承担 Hub 登录和发布，只负责公开制品的解析、下载、校验与安装；Publisher 登录和 push 由 CLI 等 Hub 客户端完成。
 
 ## 安全标头与令牌
@@ -87,9 +96,9 @@ daemon 不承担 Hub 登录和发布，只负责公开制品的解析、下载�
 ```json
 {
   "name": "OpenTool Daemon",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "apiVersion": 2,
-  "capabilities": ["artifactRegistryV2", "builtinReconcileV1", "pullSseV1", "toolMaterializationV1"]
+  "capabilities": ["artifactRegistryV2", "builtinReconcileV1", "pullSseV1", "startToolTerminalV1", "toolMaterializationV1"]
 }
 ```
 

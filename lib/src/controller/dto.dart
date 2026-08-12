@@ -404,6 +404,24 @@ class ServerIdDto {
 }
 
 @JsonSerializable(explicitToJson: true, includeIfNull: false)
+class ServerDeleteResultDto {
+  String id;
+  String serverId;
+  bool artifactRemoved;
+
+  ServerDeleteResultDto({
+    required this.id,
+    required this.serverId,
+    required this.artifactRemoved,
+  });
+
+  factory ServerDeleteResultDto.fromJson(Map<String, dynamic> json) =>
+      _$ServerDeleteResultDtoFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ServerDeleteResultDtoToJson(this);
+}
+
+@JsonSerializable(explicitToJson: true, includeIfNull: false)
 class CommandResultDto {
   String command;
   String? output;

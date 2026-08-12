@@ -28,7 +28,7 @@ The daemon will persist metadata under `~/.opentool` (servers, tools, config) an
 - Any field you provide overrides the default while other properties stay untouched; e.g. `{ "server": { "port": 20000 } }` keeps the host/prefix unchanged.
 - Both `--config <path>` and `--config=<path>` load an explicit file. A missing or invalid explicitly selected file fails startup instead of silently selecting another configuration.
 - The repository `bin/config.json` binds `127.0.0.1`. Keep the daemon on loopback unless an authenticated network boundary is provided.
-- Release builds use the compile-time daemon version (`0.4.0` in this release), so AOT binaries do not depend on a runtime `pubspec.yaml`.
+- Release builds use the compile-time daemon version (`0.5.0` in this release), so AOT binaries do not depend on a runtime `pubspec.yaml`.
 
 ---
 
@@ -73,6 +73,17 @@ data:{"json":"payload"}
 
 Use the client in `lib/src/client/client.dart` or any SSE-capable HTTP library to consume them.
 
+The public Dart client exposes `pullServerEvents` as a typed Stream; cancelling
+its subscription closes the HTTP request and cancels the daemon operation.
+`deleteServerDetailed` preserves the daemon's `artifactRemoved` result. Client
+HTTP failures are reported as `DaemonApiException` with stable `code`,
+`message`, `retryable`, and `statusCode` fields.
+
+The updated `startTool` protocol completes only after the Tool is ready and the
+daemon emits `DONE`. Startup failure, timeout, or a stream that closes before a
+terminal event causes the client Future to fail. All clients must use these
+terminal `DONE`/`ERROR` semantics.
+
 Hub authentication and publishing are intentionally not daemon responsibilities. The daemon only resolves, downloads, verifies, and registers public Hub artifacts; publisher login and push belong to Hub clients such as the CLI.
 
 ## Security Headers & Tokens
@@ -88,9 +99,9 @@ Hub authentication and publishing are intentionally not daemon responsibilities.
 ```json
 {
   "name": "OpenTool Daemon",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "apiVersion": 2,
-  "capabilities": ["artifactRegistryV2", "builtinReconcileV1", "pullSseV1", "toolMaterializationV1"]
+  "capabilities": ["artifactRegistryV2", "builtinReconcileV1", "pullSseV1", "startToolTerminalV1", "toolMaterializationV1"]
 }
 ```
 

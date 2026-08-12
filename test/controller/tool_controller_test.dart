@@ -4,6 +4,7 @@ import 'package:opentool_daemon/src/constants.dart';
 import 'package:opentool_daemon/src/controller/tool_controller.dart';
 import 'package:opentool_daemon/src/service/manage_service.dart';
 import 'package:opentool_daemon/src/service/model.dart';
+import 'package:opentool_daemon/src/service/builtin_reconcile_service.dart';
 import 'package:opentool_dart/opentool_client.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
@@ -153,6 +154,25 @@ void main() {
       expect(response.statusCode, equals(403));
     });
 
+    test('subscribeToolEvents accepts the host management token', () async {
+      const hostToken = 'host-token-that-is-at-least-32-bytes-long';
+      controller = ToolController(
+        toolService,
+        serverService,
+        manageService,
+        hostAuthenticator: HostManagementAuthenticator.fromToken(hostToken),
+      );
+      final request = Request(
+        'GET',
+        Uri.parse('http://localhost/opentool-daemon/tools/events?snapshot=0'),
+        headers: {HOST_MANAGEMENT_TOKEN_HEADER: hostToken},
+      );
+
+      final response = await controller.subscribeToolEvents(request);
+      expect(response.statusCode, equals(200));
+      await response.read().listen((_) {}).cancel();
+    });
+
     test('subscribeToolEvents streams snapshot and lifecycle events', () async {
       final request = Request(
         'GET',
@@ -197,6 +217,19 @@ void main() {
 
       expect(decoded['id'], equals('tool-1'));
       expect(toolService.lastStoppedId, equals('tool-1'));
+    });
+
+    test('startTool emits DONE after readiness', () async {
+      final request = Request(
+        'POST',
+        Uri.parse('http://localhost/opentool-daemon/tools/tool-2/start'),
+      );
+
+      final response = await controller.startTool(request, 'tool-2');
+      final body = await response.readAsString();
+
+      expect(body, contains('event:done'));
+      expect(body, contains('Tool tool-2 is ready'));
     });
 
     test('setAlias updates the tool alias and echoes it back', () async {

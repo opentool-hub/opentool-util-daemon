@@ -110,6 +110,14 @@ class BuiltinReconcileService {
         );
       }
     }
+    final active = await _reuseActiveBundle(
+      bundleFamily: bundleFamily,
+      bundleId: bundleId,
+      items: items,
+      keys: keys,
+    );
+    if (active != null) return active;
+
     final validated = <String, _ValidatedBuiltin>{};
     try {
       for (final item in items) {
@@ -134,7 +142,7 @@ class BuiltinReconcileService {
           }
           final inspection = await ZipUtil.inspect(write.tempPath);
           final config = OpentoolfileConfig.fromJson(inspection.manifest);
-          validated[item.key] = _ValidatedBuiltin(item, write.tempPath, config);
+          validated[item.key] = _ValidatedBuiltin(item, write, config);
         } catch (_) {
           await content.deleteIfExists(tempPath);
           rethrow;
@@ -142,7 +150,7 @@ class BuiltinReconcileService {
       }
     } catch (_) {
       for (final item in validated.values) {
-        await content.deleteIfExists(item.stablePath);
+        await content.deleteIfExists(item.write.tempPath);
       }
       rethrow;
     }
@@ -198,8 +206,8 @@ class BuiltinReconcileService {
             previousBundle: previousBundle,
           );
         }
-        final result = await registry.registerArtifact(
-          item.stablePath,
+        final result = await registry.registerPreparedArtifact(
+          item.write,
           ServerReferenceInput.builtin(
             bundleFamily: bundleFamily,
             bundleId: bundleId,
@@ -277,41 +285,125 @@ class BuiltinReconcileService {
       rethrow;
     } finally {
       for (final item in validated.values) {
-        await content.deleteIfExists(item.stablePath);
+        await content.deleteIfExists(item.write.tempPath);
       }
     }
 
-    final builtinServers = (await servers.list())
+    return _result(
+      bundleFamily: bundleFamily,
+      bundleId: bundleId,
+      created: created,
+      reused: reused,
+      retired: retired,
+    );
+  }
+
+  Future<BuiltinReconcileResult?> _reuseActiveBundle({
+    required String bundleFamily,
+    required String bundleId,
+    required List<BuiltinItemInput> items,
+    required Set<String> keys,
+  }) async {
+    final bundle = await bundles.get(bundleFamily);
+    if (bundle?.activeBundleId != bundleId) return null;
+    final storedKeys = [...bundle!.itemKeys]..sort();
+    final desiredKeys = keys.toList()..sort();
+    if (!_sameStrings(storedKeys, desiredKeys)) return null;
+
+    final familyServers = (await servers.list())
         .where(
           (server) =>
               server.sourceKind == 'builtin' &&
               server.builtinBundleFamily == bundleFamily,
         )
-        .map(
-          (server) => {
-            'id': server.id,
-            'alias': server.alias,
-            'namespace': server.namespace,
-            'name': server.name,
-            'version': server.version,
-            'artifactDigest': server.artifactDigest,
-            'state': server.state,
-            'source': {
-              'kind': server.sourceKind,
-              'builtinKey': server.builtinKey,
-              'bundleId': server.builtinBundleId,
-            },
-          },
-        )
         .toList();
+    for (final item in items) {
+      ServerDao? matched;
+      for (final server in familyServers) {
+        if (server.builtinKey == item.key &&
+            server.sourceKey == '$bundleFamily|${item.key}') {
+          matched = server;
+          break;
+        }
+      }
+      if (matched == null ||
+          matched.builtinBundleId != bundleId ||
+          matched.artifactDigest != item.expectedDigest ||
+          matched.state != 'available') {
+        return null;
+      }
+      final artifact = await registry.artifacts.get(item.expectedDigest);
+      if (artifact == null ||
+          artifact.digest != item.expectedDigest ||
+          artifact.size != item.expectedSize) {
+        return null;
+      }
+      final stat = await File(artifact.filePath).stat();
+      if (stat.type != FileSystemEntityType.file ||
+          stat.size != item.expectedSize) {
+        return null;
+      }
+    }
+    return _result(
+      bundleFamily: bundleFamily,
+      bundleId: bundleId,
+      created: const [],
+      reused: desiredKeys,
+      retired: const [],
+      familyServers: familyServers,
+    );
+  }
+
+  Future<BuiltinReconcileResult> _result({
+    required String bundleFamily,
+    required String bundleId,
+    required List<String> created,
+    required List<String> reused,
+    required List<String> retired,
+    List<ServerDao>? familyServers,
+  }) async {
+    final current =
+        familyServers ??
+        (await servers.list())
+            .where(
+              (server) =>
+                  server.sourceKind == 'builtin' &&
+                  server.builtinBundleFamily == bundleFamily,
+            )
+            .toList();
     return BuiltinReconcileResult(
       bundleFamily: bundleFamily,
       bundleId: bundleId,
       created: created,
       reused: reused,
       retired: retired,
-      servers: builtinServers,
+      servers: current
+          .map(
+            (server) => {
+              'id': server.id,
+              'alias': server.alias,
+              'namespace': server.namespace,
+              'name': server.name,
+              'version': server.version,
+              'artifactDigest': server.artifactDigest,
+              'state': server.state,
+              'source': {
+                'kind': server.sourceKind,
+                'builtinKey': server.builtinKey,
+                'bundleId': server.builtinBundleId,
+              },
+            },
+          )
+          .toList(),
     );
+  }
+
+  static bool _sameStrings(List<String> left, List<String> right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      if (left[index] != right[index]) return false;
+    }
+    return true;
   }
 
   Future<void> recover() async {
@@ -446,9 +538,9 @@ class BuiltinReconcileService {
 
 class _ValidatedBuiltin {
   final BuiltinItemInput input;
-  final String stablePath;
+  final ArtifactWriteResult write;
   final OpentoolfileConfig config;
-  const _ValidatedBuiltin(this.input, this.stablePath, this.config);
+  const _ValidatedBuiltin(this.input, this.write, this.config);
 }
 
 class HostManagementAuthenticator {
@@ -456,14 +548,18 @@ class HostManagementAuthenticator {
 
   HostManagementAuthenticator._(this._token);
 
+  factory HostManagementAuthenticator.fromToken(String token) {
+    final bytes = utf8.encode(token.trim());
+    return HostManagementAuthenticator._(bytes.length < 32 ? null : bytes);
+  }
+
   static Future<HostManagementAuthenticator> fromEnvironment() async {
     final path = Platform.environment['OPENTOOL_HOST_TOKEN_FILE'];
     if (path == null || path.isEmpty)
       return HostManagementAuthenticator._(null);
     final file = File(path);
     if (!await file.exists()) return HostManagementAuthenticator._(null);
-    final token = utf8.encode((await file.readAsString()).trim());
-    return HostManagementAuthenticator._(token.length < 32 ? null : token);
+    return HostManagementAuthenticator.fromToken(await file.readAsString());
   }
 
   bool authorize(String? provided) {

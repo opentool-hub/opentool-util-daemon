@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:logging/logging.dart';
 import 'package:opentool_daemon/src/utils/logger.dart';
 import 'package:shelf/shelf.dart';
 import '../service/manage_service.dart';
@@ -21,7 +22,9 @@ class ManageController {
     logger.log(
       LogModule.http,
       "getVersion",
-      detail: jsonEncode(versionDto.toJson()),
+      detail:
+          "apiVersion=${versionDto.apiVersion}, capabilities=${versionDto.capabilities.length}",
+      level: Level.FINE,
     );
     return Response.ok(jsonEncode(versionDto.toJson()), headers: JSON_HEADERS);
   }
@@ -48,7 +51,8 @@ class ManageController {
     logger.log(
       LogModule.http,
       'createApiKey',
-      detail: jsonEncode(dto.toJson()),
+      detail: 'name=${dto.name}',
+      level: Level.FINE,
     );
     return Response.ok(jsonEncode(dto.toJson()), headers: JSON_HEADERS);
   }
@@ -62,7 +66,8 @@ class ManageController {
     logger.log(
       LogModule.http,
       'listApiKeys.output',
-      detail: jsonEncode(payload),
+      detail: 'count=${payload.length}',
+      level: Level.FINE,
     );
     return Response.ok(jsonEncode(payload), headers: JSON_HEADERS);
   }
@@ -72,10 +77,12 @@ class ManageController {
     final unauthorized = await _requireSudo(request);
     if (unauthorized != null) return unauthorized;
     await manageService.deleteApiKey(apiKey);
-    final suffix = apiKey.length <= 4
-        ? '****'
-        : apiKey.substring(apiKey.length - 4);
-    logger.log(LogModule.http, 'deleteApiKey.output', detail: '***$suffix');
+    logger.log(
+      LogModule.http,
+      'deleteApiKey.output',
+      detail: 'deleted=true',
+      level: Level.FINE,
+    );
     return Response.ok(jsonEncode({'apiKey': apiKey}), headers: JSON_HEADERS);
   }
 

@@ -64,7 +64,7 @@ class ToolService {
     Future<List<ServerModel>> Function()? serverLister,
     ToolMaterializationService? materializationService,
     Duration readyCheckInterval = const Duration(milliseconds: 500),
-    Duration readyCheckTimeout = const Duration(seconds: 30),
+    Duration readyCheckTimeout = const Duration(seconds: 180),
   }) : _serverGetter = serverGetter,
        _serverLister = serverLister,
        _materializationService = materializationService,
@@ -175,7 +175,12 @@ class ToolService {
 
   /// Lists tools known to the daemon. Set [all] to true to include stopped tools.
   Future<List<ToolModel>> list({bool all = false}) async {
-    logger.log(LogModule.tool, "list.input", detail: "all: $all");
+    logger.log(
+      LogModule.tool,
+      "list.input",
+      detail: "all: $all",
+      level: Level.FINE,
+    );
     List<ToolDao> daoList = await _cacheToolStorage.list();
     if (!all) {
       daoList = daoList
@@ -186,6 +191,7 @@ class ToolService {
       LogModule.tool,
       "list.result",
       detail: "count: ${daoList.length}",
+      level: Level.FINE,
     );
     final models = <ToolModel>[];
     for (final dao in daoList) {

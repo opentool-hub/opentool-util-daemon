@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -73,6 +74,58 @@ void main() {
         expect(dto.id, equals('srv-1'));
       },
     );
+
+    test('deleteServerDetailed preserves artifact cleanup result', () async {
+      final stub = createStubDio({
+        'DELETE /srv-1': (_) => {
+          'id': 'srv-1',
+          'serverId': 'srv-1',
+          'artifactRemoved': true,
+        },
+      });
+      final client = DaemonClient()..serverDio = stub;
+
+      final result = await client.deleteServerDetailed('srv-1');
+
+      expect(result.id, 'srv-1');
+      expect(result.serverId, 'srv-1');
+      expect(result.artifactRemoved, isTrue);
+    });
+
+    test('structured HTTP errors become DaemonApiException', () async {
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) => handler.reject(
+            DioException(
+              requestOptions: options,
+              response: Response<dynamic>(
+                requestOptions: options,
+                statusCode: 409,
+                data: const {
+                  'error': {
+                    'code': 'SERVER_IN_USE',
+                    'message': 'Server is used by a tool',
+                    'retryable': false,
+                  },
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      final client = DaemonClient()..serverDio = dio;
+
+      await expectLater(
+        client.deleteServerDetailed('srv-1'),
+        throwsA(
+          isA<DaemonApiException>()
+              .having((error) => error.code, 'code', 'SERVER_IN_USE')
+              .having((error) => error.statusCode, 'statusCode', 409)
+              .having((error) => error.retryable, 'retryable', isFalse),
+        ),
+      );
+    });
 
     test('pullServer sends the install request and waits for done', () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -162,5 +215,89 @@ void main() {
         }
       },
     );
+
+    test('pullServerEvents exposes typed terminal events', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final serving = server.listen((request) async {
+        await request.drain<void>();
+        request.response.headers.contentType = ContentType(
+          'text',
+          'event-stream',
+        );
+        request.response.write(
+          'event:start\ndata:{"stage":"resolving","ref":"litevar/demo:1.2.3"}\n\n',
+        );
+        request.response.write(
+          'event:data\ndata:{"stage":"downloading","percent":50}\n\n',
+        );
+        request.response.write(
+          'event:error\ndata:{"code":"HUB_UNAVAILABLE","message":"offline","retryable":true}\n\n',
+        );
+        await request.response.close();
+      });
+      try {
+        final client = DaemonClient(
+          host: server.address.host,
+          port: server.port,
+        );
+        final events = await client
+            .pullServerEvents(
+              PullInfoDto(namespace: 'litevar', name: 'demo', version: '1.2.3'),
+            )
+            .toList();
+
+        expect(events, [
+          isA<PullStarted>(),
+          isA<PullProgress>(),
+          isA<PullFailed>(),
+        ]);
+        expect((events.last as PullFailed).data.code, 'HUB_UNAVAILABLE');
+      } finally {
+        await server.close(force: true);
+        await serving.cancel();
+      }
+    });
+
+    test('cancelling pullServerEvents cancels the SSE subscription', () async {
+      final sse = _CancellableSseClient();
+      final client = DaemonClient()..serverSse = sse;
+      final firstEvent = Completer<void>();
+      final subscription = client
+          .pullServerEvents(
+            PullInfoDto(namespace: 'litevar', name: 'demo', version: '1.2.3'),
+          )
+          .listen((_) => firstEvent.complete());
+
+      await firstEvent.future;
+      await subscription.cancel();
+
+      expect(sse.cancelled.isCompleted, isTrue);
+    });
   });
+}
+
+class _CancellableSseClient extends SseClient {
+  _CancellableSseClient() : super(baseUrl: 'http://localhost');
+
+  final cancelled = Completer<void>();
+
+  @override
+  Future<Stream<String>> request(
+    String path, {
+    Map<String, dynamic>? requestBody,
+    Map<String, dynamic>? queryParameters,
+    String method = 'POST',
+    Map<String, String>? headers,
+  }) async {
+    late final StreamController<String> controller;
+    controller = StreamController<String>(
+      onListen: () => controller.add(
+        'event:start\ndata:{"stage":"resolving","ref":"litevar/demo:1.2.3"}\n\n',
+      ),
+      onCancel: () {
+        if (!cancelled.isCompleted) cancelled.complete();
+      },
+    );
+    return controller.stream;
+  }
 }

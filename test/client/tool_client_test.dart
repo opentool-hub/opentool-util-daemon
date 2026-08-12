@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:opentool_daemon/opentool_daemon_client.dart';
 import 'package:test/test.dart';
@@ -83,6 +86,42 @@ void main() {
       expect(tools.single.server?.version, equals('1.0.0'));
     });
 
+    test('subscribeToolEvents sends the host management token', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      String? capturedToken;
+      String? capturedSnapshot;
+      final serving = server.listen((request) async {
+        capturedToken = request.headers.value(HOST_MANAGEMENT_TOKEN_HEADER);
+        capturedSnapshot = request.uri.queryParameters['snapshot'];
+        await request.drain<void>();
+        request.response.headers.contentType = ContentType(
+          'text',
+          'event-stream',
+        );
+        request.response.write(
+          'event:ready\ndata:{"message":"subscribed"}\n\n',
+        );
+        await request.response.close();
+      });
+      try {
+        final client = DaemonClient(
+          host: server.address.host,
+          port: server.port,
+        );
+        final events = await client.subscribeToolEvents(
+          hostToken: 'desktop-host-token',
+          snapshot: false,
+        );
+
+        expect(await events.toList(), isEmpty);
+        expect(capturedToken, equals('desktop-host-token'));
+        expect(capturedSnapshot, equals('0'));
+      } finally {
+        await server.close(force: true);
+        await serving.cancel();
+      }
+    });
+
     test('setAliasTool posts the alias as a query parameter', () async {
       RequestOptions? captured;
       final stub = createStubDio({
@@ -125,6 +164,127 @@ void main() {
 
       expect(captured?.method, equals('POST'));
       expect(dto.id, equals('tool-1'));
+    });
+
+    test('startTool waits for terminal DONE', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final releaseDone = Completer<void>();
+      final serving = server.listen((request) async {
+        await request.drain<void>();
+        request.response.headers.contentType = ContentType(
+          'text',
+          'event-stream',
+        );
+        request.response.write(
+          'event:data\ndata:{"command":"startTool","output":"starting"}\n\n',
+        );
+        await request.response.flush();
+        await releaseDone.future;
+        request.response.write(
+          'event:done\ndata:{"command":"startTool","output":"ready"}\n\n',
+        );
+        await request.response.close();
+      });
+      try {
+        final client = DaemonClient(
+          host: server.address.host,
+          port: server.port,
+        );
+        final output = <String?>[];
+        var completed = false;
+        final start = client
+            .startTool(
+              'tool-1',
+              onData: (result) => output.add(result.output),
+              onError: (_) {},
+            )
+            .then((_) => completed = true);
+
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(completed, isFalse);
+        releaseDone.complete();
+        await start;
+
+        expect(output, ['starting']);
+        expect(completed, isTrue);
+      } finally {
+        if (!releaseDone.isCompleted) releaseDone.complete();
+        await server.close(force: true);
+        await serving.cancel();
+      }
+    });
+
+    test('startTool handles ERROR as a terminal failure', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final serving = server.listen((request) async {
+        await request.drain<void>();
+        request.response.headers.contentType = ContentType(
+          'text',
+          'event-stream',
+        );
+        request.response.write(
+          'event:error\ndata:{"command":"startTool","error":"boom"}\n\n',
+        );
+        await request.response.close();
+      });
+      try {
+        final client = DaemonClient(
+          host: server.address.host,
+          port: server.port,
+        );
+        CommandResultDto? callbackError;
+        Object? streamError;
+
+        await expectLater(
+          client.startTool(
+            'tool-1',
+            onData: (_) {},
+            onError: (error) => callbackError = error,
+            onStreamError: (error, _) => streamError = error,
+          ),
+          throwsA(
+            isA<DaemonApiException>().having(
+              (error) => error.code,
+              'code',
+              'TOOL_START_FAILED',
+            ),
+          ),
+        );
+        expect(callbackError?.error, 'boom');
+        expect(streamError, isNull);
+      } finally {
+        await server.close(force: true);
+        await serving.cancel();
+      }
+    });
+
+    test('startTool rejects a stream that closes before terminal', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final serving = server.listen((request) async {
+        await request.drain<void>();
+        request.response.headers.contentType = ContentType(
+          'text',
+          'event-stream',
+        );
+        request.response.write(
+          'event:data\ndata:{"command":"startTool","output":"starting"}\n\n',
+        );
+        await request.response.close();
+      });
+      try {
+        final client = DaemonClient(
+          host: server.address.host,
+          port: server.port,
+        );
+
+        await expectLater(
+          client.startTool('tool-1', onData: (_) {}, onError: (_) {}),
+          throwsA(isA<SseProtocolException>()),
+        );
+      } finally {
+        await server.close(force: true);
+        await serving.cancel();
+      }
     });
   });
 }

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:opentool_daemon/opentool_daemon_utils.dart';
 import 'package:path/path.dart' as p;
 import 'package:unique_id_dart/unique_id_dart.dart';
@@ -32,7 +33,7 @@ class ServerService {
        _registry = artifactRegistry;
 
   Future<List<ServerModel>> list() async {
-    logger.log(LogModule.server, 'list.input');
+    logger.log(LogModule.server, 'list.input', level: Level.FINE);
     final daos = await _servers.list();
     final toolServerIds = _tools == null
         ? const <String>{}
@@ -48,6 +49,7 @@ class ServerService {
       LogModule.server,
       'list.result',
       detail: 'count: ${models.length}',
+      level: Level.FINE,
     );
     return models;
   }

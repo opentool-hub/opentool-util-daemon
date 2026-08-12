@@ -73,7 +73,7 @@ class SseClient {
     }
 
     var buffer = '';
-    Stream<String> stream = response
+    final responseStream = response
         .transform(utf8.decoder)
         .transform(
           StreamTransformer<String, String>.fromHandlers(
@@ -88,13 +88,30 @@ class SseClient {
             },
           ),
         );
-    return (() async* {
-      try {
-        yield* stream;
-      } finally {
-        httpClient.close();
-      }
-    })();
+    StreamSubscription<String>? subscription;
+    late final StreamController<String> controller;
+    controller = StreamController<String>(
+      onListen: () {
+        subscription = responseStream.listen(
+          controller.add,
+          onError: (Object error, StackTrace stackTrace) {
+            httpClient.close(force: true);
+            controller.addError(error, stackTrace);
+          },
+          onDone: () async {
+            httpClient.close(force: true);
+            await controller.close();
+          },
+        );
+      },
+      onPause: () => subscription?.pause(),
+      onResume: () => subscription?.resume(),
+      onCancel: () {
+        httpClient.close(force: true);
+        return subscription?.cancel();
+      },
+    );
+    return controller.stream;
   }
 
   static void parse(

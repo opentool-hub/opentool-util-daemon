@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:opentool_daemon/opentool_daemon_utils.dart';
 import 'package:opentool_daemon/opentool_daemon_server.dart';
 import 'package:opentool_dart/opentool_client.dart';
 import '../service/model.dart';
+import 'daemon_api_exception.dart';
+import 'pull_event.dart';
 
 class DaemonClient {
   String protocol = 'http';
@@ -43,6 +46,33 @@ class DaemonClient {
     );
   }
 
+  Future<T> _guardApi<T>(Future<T> Function() operation) async {
+    try {
+      return await operation();
+    } catch (error, stackTrace) {
+      final normalized = _normalizeError(error);
+      if (identical(normalized, error)) rethrow;
+      Error.throwWithStackTrace(normalized, stackTrace);
+    }
+  }
+
+  Object _normalizeError(Object error) {
+    if (error is DaemonApiException) return error;
+    if (error is DioException) return DaemonApiException.fromDio(error);
+    if (error is SseRequestException) {
+      return DaemonApiException.fromSseRequest(error);
+    }
+    if (error is SocketException) {
+      return DaemonApiException(
+        code: 'DAEMON_UNAVAILABLE',
+        message: error.message,
+        retryable: true,
+        cause: error,
+      );
+    }
+    return error;
+  }
+
   /// Manage API： /opentool-daemon ==========
 
   Options _sudoOptions(String sudoToken) =>
@@ -51,56 +81,55 @@ class DaemonClient {
   static const String _sudoHeader = 'x-opentool-sudo-token';
 
   /// GET /version
-  Future<VersionDto> getVersion() async {
-    Response response = await manageDio.get('/version');
-    return VersionDto.fromJson(response.data);
-  }
+  Future<VersionDto> getVersion() => _guardApi(() async {
+    final response = await manageDio.get('/version');
+    return VersionDto.fromJson(response.data as Map<String, dynamic>);
+  });
 
   /// POST /apiKey
-  Future<ApiKeyDto> createApiKey({
-    required String sudoToken,
-    String? name,
-  }) async {
-    final data = name == null ? null : CreateApiKeyDto(name: name).toJson();
-    final response = await manageDio.post(
-      '/apiKey',
-      data: data,
-      options: _sudoOptions(sudoToken),
-    );
-    return ApiKeyDto.fromJson(response.data);
-  }
+  Future<ApiKeyDto> createApiKey({required String sudoToken, String? name}) =>
+      _guardApi(() async {
+        final data = name == null ? null : CreateApiKeyDto(name: name).toJson();
+        final response = await manageDio.post(
+          '/apiKey',
+          data: data,
+          options: _sudoOptions(sudoToken),
+        );
+        return ApiKeyDto.fromJson(response.data as Map<String, dynamic>);
+      });
 
   /// GET /apiKeys
-  Future<List<ApiKeyDto>> listApiKeys({required String sudoToken}) async {
-    final response = await manageDio.get(
-      '/apiKeys',
-      options: _sudoOptions(sudoToken),
-    );
-    final res = response.data as List<dynamic>;
-    return res
-        .map((e) => ApiKeyDto.fromJson(e as Map<String, dynamic>))
-        .toList();
-  }
+  Future<List<ApiKeyDto>> listApiKeys({required String sudoToken}) =>
+      _guardApi(() async {
+        final response = await manageDio.get(
+          '/apiKeys',
+          options: _sudoOptions(sudoToken),
+        );
+        final res = response.data as List<dynamic>;
+        return res
+            .map((e) => ApiKeyDto.fromJson(e as Map<String, dynamic>))
+            .toList();
+      });
 
   /// DELETE /apiKey/{apiKey}
   Future<void> deleteApiKey({
     required String sudoToken,
     required String apiKey,
-  }) async {
+  }) => _guardApi(() async {
     await manageDio.delete('/apiKey/$apiKey', options: _sudoOptions(sudoToken));
-  }
+  });
 
   /// Server API： /opentool-daemon/servers ==========
 
   /// GET /servers/list
-  Future<List<OpenToolServerDto>> listServer() async {
+  Future<List<OpenToolServerDto>> listServer() => _guardApi(() async {
     Response response = await serverDio.get('/list');
     List<dynamic> res = response.data;
     List<OpenToolServerDto> result = res
         .map((dyn) => OpenToolServerDto.fromJson(dyn as Map<String, dynamic>))
         .toList();
     return result;
-  }
+  });
 
   /// POST /servers/build
   Future<void> buildServer(
@@ -128,24 +157,35 @@ class DaemonClient {
       sseStream.listen(
         (data) => SseClient.parse(data, onEvent),
         onError: (error, stackTrace) {
-          onError?.call(error, stackTrace);
+          onError?.call(_normalizeError(error), stackTrace);
         },
         cancelOnError: true,
       );
     } catch (error, stackTrace) {
+      final normalized = _normalizeError(error);
       if (onError != null) {
-        onError(error, stackTrace);
+        onError(normalized, stackTrace);
         return;
       }
-      rethrow;
+      if (identical(normalized, error)) rethrow;
+      Error.throwWithStackTrace(normalized, stackTrace);
     }
   }
 
   /// DELETE /servers/{server_id}
-  Future<ServerIdDto> deleteServer(String serverId) async {
-    Response response = await serverDio.delete('/$serverId');
-    return ServerIdDto.fromJson(response.data);
-  }
+  Future<ServerIdDto> deleteServer(String serverId) => _guardApi(() async {
+    final response = await serverDio.delete('/$serverId');
+    return ServerIdDto.fromJson(response.data as Map<String, dynamic>);
+  });
+
+  /// DELETE /servers/{server_id}, including artifact cleanup information.
+  Future<ServerDeleteResultDto> deleteServerDetailed(String serverId) =>
+      _guardApi(() async {
+        final response = await serverDio.delete('/$serverId');
+        return ServerDeleteResultDto.fromJson(
+          response.data as Map<String, dynamic>,
+        );
+      });
 
   /// POST /servers/pull
   Future<void> pullServer(
@@ -157,105 +197,119 @@ class DaemonClient {
     void Function(Object error, StackTrace stackTrace)? onError,
   }) async {
     try {
-      Stream<String> sseStream = await serverSse.request(
+      await for (final event in pullServerEvents(pullInfo)) {
+        switch (event) {
+          case PullStarted(:final data):
+            onStart(data);
+          case PullProgress(:final data):
+            onDownload(data);
+          case PullCompleted(:final data):
+            onDone(data);
+          case PullFailed(:final data):
+            onPullError(data);
+        }
+      }
+    } catch (error, stackTrace) {
+      final normalized = _normalizeError(error);
+      if (onError != null) {
+        onError(normalized, stackTrace);
+        return;
+      }
+      if (identical(normalized, error)) rethrow;
+      Error.throwWithStackTrace(normalized, stackTrace);
+    }
+  }
+
+  /// A typed pull stream. Cancelling the subscription closes the underlying
+  /// HTTP request, which in turn triggers daemon-side pull cancellation.
+  Stream<PullEvent> pullServerEvents(PullInfoDto pullInfo) async* {
+    final Stream<String> sseStream;
+    try {
+      sseStream = await serverSse.request(
         '/pull',
         requestBody: pullInfo.toJson(),
       );
-      final completed = Completer<void>();
-      var terminalReceived = false;
-      void Function(String event, Map<String, dynamic> data) onEvent =
-          (String event, Map<String, dynamic> data) {
-            if (event == EventType.START) {
-              onStart(PullStartDto.fromJson(data));
-            } else if (event == EventType.DATA) {
-              onDownload(PullDownloadDto.fromJson(data));
-            } else if (event == EventType.DONE) {
-              terminalReceived = true;
-              onDone(PullDoneDto.fromJson(data));
-              if (!completed.isCompleted) completed.complete();
-            } else if (event == EventType.ERROR) {
-              terminalReceived = true;
-              onPullError(PullErrorDto.fromJson(data));
-              if (!completed.isCompleted) completed.complete();
-            }
-          };
-      sseStream.listen(
-        (data) {
-          try {
-            SseClient.parse(data, onEvent);
-          } catch (error, stackTrace) {
-            if (!completed.isCompleted) {
-              completed.completeError(error, stackTrace);
-            }
-          }
-        },
-        onError: (error, stackTrace) {
-          if (onError != null) {
-            onError(error, stackTrace);
-            if (!completed.isCompleted) completed.complete();
-          } else if (!completed.isCompleted) {
-            completed.completeError(error, stackTrace);
-          }
-        },
-        onDone: () {
-          if (!terminalReceived && !completed.isCompleted) {
-            completed.completeError(
-              const SseProtocolException(
-                'Pull stream closed before a terminal done or error event',
-              ),
-              StackTrace.current,
-            );
-          }
-        },
-        cancelOnError: true,
-      );
-      await completed.future;
     } catch (error, stackTrace) {
-      if (onError != null) {
-        onError(error, stackTrace);
-        return;
+      final normalized = _normalizeError(error);
+      if (identical(normalized, error)) rethrow;
+      Error.throwWithStackTrace(normalized, stackTrace);
+    }
+
+    var terminalReceived = false;
+    try {
+      await for (final chunk in sseStream) {
+        final events = <PullEvent>[];
+        SseClient.parse(chunk, (event, data) {
+          switch (event) {
+            case EventType.START:
+              events.add(PullStarted(PullStartDto.fromJson(data)));
+            case EventType.DATA:
+              events.add(PullProgress(PullDownloadDto.fromJson(data)));
+            case EventType.DONE:
+              terminalReceived = true;
+              events.add(PullCompleted(PullDoneDto.fromJson(data)));
+            case EventType.ERROR:
+              terminalReceived = true;
+              events.add(PullFailed(PullErrorDto.fromJson(data)));
+          }
+        });
+        for (final event in events) {
+          yield event;
+        }
+        if (terminalReceived) return;
       }
-      rethrow;
+    } catch (error, stackTrace) {
+      final normalized = _normalizeError(error);
+      if (identical(normalized, error)) rethrow;
+      Error.throwWithStackTrace(normalized, stackTrace);
+    }
+    if (!terminalReceived) {
+      throw const SseProtocolException(
+        'Pull stream closed before a terminal done or error event',
+      );
     }
   }
 
   /// GET /servers/{serverId}/export
-  Future<ServerIdDto> exportServer(String serverId, String targetPath) async {
-    PathDto pathDto = PathDto(path: targetPath);
-    Response response = await serverDio.get(
-      '/$serverId/export',
-      data: pathDto.toJson(),
-    );
-    return ServerIdDto.fromJson(response.data);
-  }
+  Future<ServerIdDto> exportServer(String serverId, String targetPath) =>
+      _guardApi(() async {
+        PathDto pathDto = PathDto(path: targetPath);
+        Response response = await serverDio.get(
+          '/$serverId/export',
+          data: pathDto.toJson(),
+        );
+        return ServerIdDto.fromJson(response.data as Map<String, dynamic>);
+      });
 
   /// POST /servers/import
-  Future<OpenToolServerDto> importServer(String sourcePath) async {
+  Future<OpenToolServerDto> importServer(
+    String sourcePath,
+  ) => _guardApi(() async {
     PathDto pathDto = PathDto(path: sourcePath);
     Response response = await serverDio.post('/import', data: pathDto.toJson());
-    return OpenToolServerDto.fromJson(response.data);
-  }
+    return OpenToolServerDto.fromJson(response.data as Map<String, dynamic>);
+  });
 
   /// POST /servers/{serverId}/alias?alias=<target_alias>
-  Future<OpenToolServerDto> setAliasServer(
-    String serverId,
-    String? alias,
-  ) async {
-    Map<String, dynamic>? queryParameters;
-    if (alias != null && alias.isNotEmpty) {
-      queryParameters = {'alias': alias};
-    }
-    Response response = await serverDio.post(
-      '/$serverId/alias',
-      queryParameters: queryParameters,
-    );
-    return OpenToolServerDto.fromJson(response.data);
-  }
+  Future<OpenToolServerDto> setAliasServer(String serverId, String? alias) =>
+      _guardApi(() async {
+        Map<String, dynamic>? queryParameters;
+        if (alias != null && alias.isNotEmpty) {
+          queryParameters = {'alias': alias};
+        }
+        Response response = await serverDio.post(
+          '/$serverId/alias',
+          queryParameters: queryParameters,
+        );
+        return OpenToolServerDto.fromJson(
+          response.data as Map<String, dynamic>,
+        );
+      });
 
   /// Tool API： /opentool-daemon/tools ==========
 
   /// GET /tools/list?all=0
-  Future<List<ToolDto>> listTool(String? all) async {
+  Future<List<ToolDto>> listTool(String? all) => _guardApi(() async {
     Map<String, dynamic>? queryParameters;
     if (all != null && all.isNotEmpty) {
       queryParameters = {'all': all};
@@ -269,13 +323,13 @@ class DaemonClient {
         .map((dyn) => ToolDto.fromJson(dyn as Map<String, dynamic>))
         .toList();
     return result;
-  }
+  });
 
   /// GET /tools/listWithApiKeys?all=0
   Future<List<ToolWithApiKeyDto>> listToolWithApiKeys(
     String? all, {
     required String daemonApiKey,
-  }) async {
+  }) => _guardApi(() async {
     Map<String, dynamic>? queryParameters;
     if (all != null && all.isNotEmpty) {
       queryParameters = {'all': all};
@@ -294,18 +348,28 @@ class DaemonClient {
     return res
         .map((dyn) => ToolWithApiKeyDto.fromJson(dyn as Map<String, dynamic>))
         .toList();
-  }
+  });
 
   /// GET /tools/events?snapshot=1
   Future<Stream<ToolLifecycleEventDto>> subscribeToolEvents({
-    required String daemonApiKey,
+    String? daemonApiKey,
+    String? hostToken,
     bool snapshot = true,
-  }) async {
+  }) => _guardApi(() async {
+    if ((daemonApiKey == null || daemonApiKey.isEmpty) &&
+        (hostToken == null || hostToken.isEmpty)) {
+      throw ArgumentError('daemonApiKey or hostToken is required');
+    }
     final sseStream = await toolSse.request(
       '/events',
       queryParameters: {'snapshot': snapshot ? '1' : '0'},
       method: 'GET',
-      headers: {TOOL_API_KEY_HEADER: daemonApiKey},
+      headers: {
+        if (daemonApiKey != null && daemonApiKey.isNotEmpty)
+          TOOL_API_KEY_HEADER: daemonApiKey,
+        if (hostToken != null && hostToken.isNotEmpty)
+          HOST_MANAGEMENT_TOKEN_HEADER: hostToken,
+      },
     );
 
     return sseStream.transform(
@@ -324,7 +388,7 @@ class DaemonClient {
         },
       ),
     );
-  }
+  });
 
   /// POST /tools/create
   Future<CommandResultDto> runServer(
@@ -385,7 +449,13 @@ class DaemonClient {
       completeWithError(error, stackTrace);
     }
 
-    return completer.future;
+    try {
+      return await completer.future;
+    } catch (error, stackTrace) {
+      final normalized = _normalizeError(error);
+      if (identical(normalized, error)) rethrow;
+      Error.throwWithStackTrace(normalized, stackTrace);
+    }
   }
 
   /// POST /tools/{toolId}/start
@@ -396,59 +466,75 @@ class DaemonClient {
     void Function(Object error, StackTrace stackTrace)? onStreamError,
     int timeoutSeconds = -1,
   }) async {
+    var terminalErrorReported = false;
     try {
-      Map<String, dynamic>? queryParameters;
-      if (timeoutSeconds >= 0) {
-        queryParameters = {'timeout': '$timeoutSeconds'};
-      }
-      Stream<String> sseStream = await toolSse.request(
+      final queryParameters = <String, dynamic>{
+        if (timeoutSeconds >= 0) 'timeout': '$timeoutSeconds',
+      };
+      final sseStream = await toolSse.request(
         '/${toolId}/start',
         queryParameters: queryParameters,
       );
-      void Function(String event, Map<String, dynamic> data) onEvent =
-          (String event, Map<String, dynamic> data) {
-            if (event == EventType.DATA) {
-              onData(CommandResultDto.fromJson(data));
-            } else if (event == EventType.DONE) {
-              onError(CommandResultDto.fromJson(data));
-            }
-          };
-      sseStream.listen(
-        (data) => SseClient.parse(data, onEvent),
-        onError: (error, stackTrace) {
-          onStreamError?.call(error, stackTrace);
-        },
-        cancelOnError: true,
-      );
-    } catch (error, stackTrace) {
-      if (onStreamError != null) {
-        onStreamError(error, stackTrace);
-        return;
+      var terminalReceived = false;
+      await for (final chunk in sseStream) {
+        DaemonApiException? terminalError;
+        SseClient.parse(chunk, (event, data) {
+          final result = CommandResultDto.fromJson(data);
+          if (event == EventType.DATA) {
+            onData(result);
+          } else if (event == EventType.DONE) {
+            terminalReceived = true;
+          } else if (event == EventType.ERROR) {
+            terminalReceived = true;
+            terminalErrorReported = true;
+            onError(result);
+            terminalError = DaemonApiException(
+              code: 'TOOL_START_FAILED',
+              message: result.error ?? 'OpenTool start failed',
+              retryable: false,
+              details: result.toJson(),
+            );
+          }
+        });
+        if (terminalError != null) throw terminalError!;
+        if (terminalReceived) return;
       }
-      rethrow;
+      if (!terminalReceived) {
+        throw const SseProtocolException(
+          'Start stream closed before a terminal done or error event',
+        );
+      }
+    } catch (error, stackTrace) {
+      final normalized = _normalizeError(error);
+      if (!terminalErrorReported && onStreamError != null) {
+        onStreamError(normalized, stackTrace);
+      }
+      if (identical(normalized, error)) rethrow;
+      Error.throwWithStackTrace(normalized, stackTrace);
     }
   }
 
   /// POST /tools/{toolId}/stop
-  Future<ToolIdDto> stopTool(String toolId) async {
+  Future<ToolIdDto> stopTool(String toolId) => _guardApi(() async {
     Response response = await toolDio.post('/${toolId}/stop');
-    return ToolIdDto.fromJson(response.data);
-  }
+    return ToolIdDto.fromJson(response.data as Map<String, dynamic>);
+  });
 
   /// DELETE /tools/{toolId}
-  Future<ToolIdDto> deleteTool(String toolId) async {
+  Future<ToolIdDto> deleteTool(String toolId) => _guardApi(() async {
     Response response = await toolDio.delete('/${toolId}');
-    return ToolIdDto.fromJson(response.data);
-  }
+    return ToolIdDto.fromJson(response.data as Map<String, dynamic>);
+  });
 
   /// POST /tools/{toolId}/call
-  Future<ToolReturn> callTool(String toolId, FunctionCall functionCall) async {
-    Response response = await toolDio.post(
-      '/${toolId}/call',
-      data: jsonEncode(functionCall.toJson()),
-    );
-    return ToolReturn.fromJson(response.data);
-  }
+  Future<ToolReturn> callTool(String toolId, FunctionCall functionCall) =>
+      _guardApi(() async {
+        Response response = await toolDio.post(
+          '/${toolId}/call',
+          data: jsonEncode(functionCall.toJson()),
+        );
+        return ToolReturn.fromJson(response.data as Map<String, dynamic>);
+      });
 
   /// POST /tools/{toolId}/streamCall
   Future<void> streamCallTool(
@@ -465,31 +551,34 @@ class DaemonClient {
       sseStream.listen(
         (data) => SseClient.parse(data, onEvent),
         onError: (error, stackTrace) {
-          onError?.call(error, stackTrace);
+          onError?.call(_normalizeError(error), stackTrace);
         },
         cancelOnError: true,
       );
     } catch (error, stackTrace) {
+      final normalized = _normalizeError(error);
       if (onError != null) {
-        onError(error, stackTrace);
+        onError(normalized, stackTrace);
         return;
       }
-      rethrow;
+      if (identical(normalized, error)) rethrow;
+      Error.throwWithStackTrace(normalized, stackTrace);
     }
   }
 
   /// GET /tools/{toolId}/load
-  Future<OpenTool?> loadTool(String toolId) async {
+  Future<OpenTool?> loadTool(String toolId) => _guardApi(() async {
     Response response = await toolDio.get('/${toolId}/load');
-    return OpenTool.fromJson(response.data);
-  }
+    return OpenTool.fromJson(response.data as Map<String, dynamic>);
+  });
 
   /// POST /tools/{toolId}/alias?alias=<target_alias>
-  Future<ToolDto> setAliasTool(String toolId, String alias) async {
-    Response response = await toolDio.post(
-      '/${toolId}/alias',
-      queryParameters: {'alias': alias},
-    );
-    return ToolDto.fromJson(response.data);
-  }
+  Future<ToolDto> setAliasTool(String toolId, String alias) =>
+      _guardApi(() async {
+        Response response = await toolDio.post(
+          '/${toolId}/alias',
+          queryParameters: {'alias': alias},
+        );
+        return ToolDto.fromJson(response.data as Map<String, dynamic>);
+      });
 }

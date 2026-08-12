@@ -362,6 +362,22 @@ ServerIdDto _$ServerIdDtoFromJson(Map<String, dynamic> json) =>
 Map<String, dynamic> _$ServerIdDtoToJson(ServerIdDto instance) =>
     <String, dynamic>{'id': instance.id};
 
+ServerDeleteResultDto _$ServerDeleteResultDtoFromJson(
+  Map<String, dynamic> json,
+) => ServerDeleteResultDto(
+  id: json['id'] as String,
+  serverId: json['serverId'] as String,
+  artifactRemoved: json['artifactRemoved'] as bool,
+);
+
+Map<String, dynamic> _$ServerDeleteResultDtoToJson(
+  ServerDeleteResultDto instance,
+) => <String, dynamic>{
+  'id': instance.id,
+  'serverId': instance.serverId,
+  'artifactRemoved': instance.artifactRemoved,
+};
+
 CommandResultDto _$CommandResultDtoFromJson(Map<String, dynamic> json) =>
     CommandResultDto(
       command: json['command'] as String,

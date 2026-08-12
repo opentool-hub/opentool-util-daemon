@@ -175,6 +175,40 @@ class ArtifactRegistryService {
     bool notify = true,
   }) async {
     _validateReference(reference, policy);
+    late final ArtifactWriteResult write;
+    try {
+      write = await content.copyToPart(sourcePath);
+    } on FileSystemException catch (error) {
+      throw ArtifactOperationException(
+        code: 'REGISTER_FAILED',
+        message: error.message,
+        retryable: true,
+      );
+    }
+    return registerPreparedArtifact(
+      write,
+      reference,
+      policy,
+      expectedMetadata: expectedMetadata,
+      notify: notify,
+    );
+  }
+
+  /// Registers a part that has already been copied and digested by [content].
+  /// Ownership of [write.tempPath] transfers to this method.
+  Future<ServerDao> registerPreparedArtifact(
+    ArtifactWriteResult write,
+    ServerReferenceInput reference,
+    RegistrationPolicy policy, {
+    ArtifactExpectedMetadata? expectedMetadata,
+    bool notify = true,
+  }) async {
+    try {
+      _validateReference(reference, policy);
+    } catch (_) {
+      await content.deleteIfExists(write.tempPath);
+      rethrow;
+    }
     final now = DateTime.now().toUtc();
     final operation = ArtifactOperationDao(
       id: uniqueId(shorter: false),
@@ -185,11 +219,14 @@ class ArtifactRegistryService {
       createdAt: now,
       updatedAt: now,
     );
-    await operations.add(operation);
-    ArtifactWriteResult? write;
+    try {
+      await operations.add(operation);
+    } catch (_) {
+      await content.deleteIfExists(write.tempPath);
+      rethrow;
+    }
     var durableState = false;
     try {
-      write = await content.copyToPart(sourcePath);
       operation.tempPath = write.tempPath;
       operation.digest = write.digest;
       await _updateOperation(operation, 'contentWritten');
@@ -201,7 +238,7 @@ class ArtifactRegistryService {
       );
 
       return await _sourceLock(reference).protect(() async {
-        final completedWrite = write!;
+        final completedWrite = write;
         final existing = await findBySource(
           reference.sourceKind,
           reference.sourceKey,
@@ -251,12 +288,6 @@ class ArtifactRegistryService {
                   verifiedAt: DateTime.now().toUtc(),
                   createdAt: DateTime.now().toUtc(),
                 ),
-              );
-            } else {
-              await content.verify(
-                oldArtifact.filePath,
-                oldArtifact.digest,
-                oldArtifact.size,
               );
             }
             await _updateOperation(operation, 'artifactWritten');
@@ -308,12 +339,12 @@ class ArtifactRegistryService {
       });
     } on ArtifactOperationException {
       if (!durableState) {
-        await content.deleteIfExists(write?.tempPath);
+        await content.deleteIfExists(write.tempPath);
         await operations.remove(operation.id);
       }
       rethrow;
     } on FormatException catch (error) {
-      await content.deleteIfExists(write?.tempPath);
+      await content.deleteIfExists(write.tempPath);
       if (!durableState) await operations.remove(operation.id);
       throw ArtifactOperationException(
         code: 'ARTIFACT_INVALID',
@@ -321,7 +352,7 @@ class ArtifactRegistryService {
         retryable: false,
       );
     } on FileSystemException catch (error) {
-      await content.deleteIfExists(write?.tempPath);
+      await content.deleteIfExists(write.tempPath);
       if (!durableState) await operations.remove(operation.id);
       throw ArtifactOperationException(
         code: 'REGISTER_FAILED',

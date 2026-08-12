@@ -403,7 +403,7 @@ void main() {
         final bundles = _MemoryStorage<BuiltinBundleDao>(
           (value) => value.bundleFamily,
         );
-        final content = ArtifactStorage(root.path);
+        final content = _CountingArtifactStorage(root.path);
         final registry = ArtifactRegistryService(
           content: content,
           artifacts: artifacts,
@@ -429,9 +429,29 @@ void main() {
           items: [item],
         );
         expect(created.created, ['demo']);
+        expect(content.copyCount, 1);
         final serverId = (await servers.list()).single.id;
         (await servers.get(serverId))!.alias = 'preserved';
         await servers.update((await servers.get(serverId))!);
+
+        final unchanged = await service.reconcile(
+          bundleFamily: 'embedded',
+          bundleId: 'bundle-1',
+          items: [item],
+        );
+        expect(unchanged.reused, ['demo']);
+        expect(content.copyCount, 1);
+
+        final storedArtifact = File(content.pathForDigest(digest));
+        await storedArtifact.delete();
+        final repaired = await service.reconcile(
+          bundleFamily: 'embedded',
+          bundleId: 'bundle-1',
+          items: [item],
+        );
+        expect(repaired.reused, ['demo']);
+        expect(content.copyCount, 2);
+        expect(await storedArtifact.exists(), isTrue);
 
         final retired = await service.reconcile(
           bundleFamily: 'embedded',
@@ -656,6 +676,18 @@ class _MemoryStorage<T> implements Storage<T> {
   Future<T?> remove(String id) async => values.remove(id);
   @override
   Future<void> update(T value) async => values[keyOf(value)] = value;
+}
+
+class _CountingArtifactStorage extends ArtifactStorage {
+  _CountingArtifactStorage(super.dataDir);
+
+  var copyCount = 0;
+
+  @override
+  Future<ArtifactWriteResult> copyToPart(String sourcePath) {
+    copyCount++;
+    return super.copyToPart(sourcePath);
+  }
 }
 
 class _FailingBundleStorage extends _MemoryStorage<BuiltinBundleDao> {

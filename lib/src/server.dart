@@ -100,6 +100,7 @@ class DaemonServer {
       toolService,
       serverService,
       manageService,
+      hostAuthenticator: hostAuthenticator,
     );
 
     manageRoutes(manageController);

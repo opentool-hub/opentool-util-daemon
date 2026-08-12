@@ -1,3 +1,10 @@
+## 0.5.0
+
+- Make terminal-ready `DONE`/`ERROR` semantics mandatory for Tool start
+- Add typed, subscription-cancellable Pull events and detailed Server deletion results
+- Expose stable `DaemonApiException` values instead of leaking Dio failures from the public client
+- Fix `startTool` ERROR handling and make its Future wait for a terminal event
+
 ## 0.4.0
 
 - Add V2 content-addressed Artifact, Server reference, Tool, operation, schema, and builtin bundle storage

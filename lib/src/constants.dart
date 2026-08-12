@@ -35,6 +35,7 @@ const String SYSTEM_CONFIG_FILE_NAME = "config.json";
 const String API_KEYS_FILE_NAME = 'api_keys.json';
 const String SUDO_TOKEN_FILE_NAME = 'opentool-daemon.sudo';
 const String TOOL_API_KEY_HEADER = 'x-opentool-api-key';
+const String HOST_MANAGEMENT_TOKEN_HEADER = 'x-opentool-host-token';
 
 const int DAEMON_DEFAULT_PORT = 19627;
 const int TOOL_DEFAULT_PORT = 9010;

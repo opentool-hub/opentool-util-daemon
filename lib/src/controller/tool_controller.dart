@@ -9,6 +9,7 @@ import '../service/model.dart';
 import '../service/server_service.dart';
 import '../service/tool_service.dart';
 import '../service/exception.dart';
+import '../service/builtin_reconcile_service.dart';
 import '../constants.dart';
 import 'dto.dart';
 
@@ -17,8 +18,14 @@ class ToolController {
   ToolService toolService;
   ServerService serverService;
   ManageService manageService;
+  HostManagementAuthenticator? hostAuthenticator;
 
-  ToolController(this.toolService, this.serverService, this.manageService);
+  ToolController(
+    this.toolService,
+    this.serverService,
+    this.manageService, {
+    this.hostAuthenticator,
+  });
 
   /// GET /tools/list?all=0
   Future<Response> listTools(Request request) async {
@@ -45,7 +52,8 @@ class ToolController {
     logger.log(
       LogModule.http,
       "listTools.output",
-      detail: jsonEncode(toolsDto),
+      detail: "count=${toolsDto.length}",
+      level: Level.FINE,
     );
     return Response.ok(jsonEncode(toolsDto), headers: JSON_HEADERS);
   }
@@ -77,14 +85,15 @@ class ToolController {
     logger.log(
       LogModule.http,
       'listToolsWithApiKeys.output',
-      detail: jsonEncode(toolsDto),
+      detail: 'count=${toolsDto.length}',
+      level: Level.FINE,
     );
     return Response.ok(jsonEncode(toolsDto), headers: JSON_HEADERS);
   }
 
   /// GET /tools/events?snapshot=1
   Future<Response> subscribeToolEvents(Request request) async {
-    final authError = await _validateDaemonApiKey(request);
+    final authError = await _validateToolEventAccess(request);
     if (authError != null) return authError;
 
     final bool includeSnapshot = request.url.queryParameters['snapshot'] != '0';
@@ -189,7 +198,7 @@ class ToolController {
     if (serverId == null) throw ArgumentError('serverId is required');
     String hostType = queryParams['hostType'] ?? HostType.ANY;
     final int timeoutSeconds =
-        int.tryParse(queryParams['timeout'] ?? '-1') ?? -1;
+        int.tryParse(queryParams['timeout'] ?? '180') ?? 180;
     List<String> extraCmds = [];
     final payload = await request.readAsString();
     if (payload.trim().isNotEmpty) {
@@ -363,7 +372,7 @@ class ToolController {
       level: Level.FINE,
     );
     final int timeoutSeconds =
-        int.tryParse(queryParams['timeout'] ?? '-1') ?? -1;
+        int.tryParse(queryParams['timeout'] ?? '180') ?? 180;
     String? hostOverride = queryParams['hostType'];
     ToolModel toolModel = await toolService.get(toolId);
     if (hostOverride != null && hostOverride.isNotEmpty) {
@@ -406,6 +415,24 @@ class ToolController {
       closeStream();
     }
 
+    void completeSuccess() {
+      if (completer.isCompleted) return;
+      if (!isClosed) {
+        final result = CommandResultDto(
+          command: 'startTool',
+          output: 'Tool $toolId is ready',
+        );
+        _pushData(
+          streamController,
+          EventType.DONE,
+          jsonEncode(result.toJson()),
+          logMessage: 'startTool.done',
+        );
+      }
+      completer.complete();
+      closeStream();
+    }
+
     Future<void> startFuture;
     try {
       startFuture = toolService.startTool(
@@ -431,7 +458,7 @@ class ToolController {
           );
           _pushData(
             streamController,
-            EventType.ERROR,
+            EventType.DATA,
             jsonEncode(commandResultDto.toJson()),
             logMessage: "startTool.push",
           );
@@ -446,33 +473,18 @@ class ToolController {
       );
     }
 
-    startFuture.catchError(completeError);
+    startFuture.then<void>((_) => completeSuccess(), onError: completeError);
 
     if (timeoutSeconds >= 0) {
       Future.delayed(Duration(seconds: timeoutSeconds), () {
         if (completer.isCompleted) return;
-        const timeoutMessage =
-            'Tool has started; daemon will keep it running in the background.';
-        CommandResultDto timeoutDto = CommandResultDto(
-          command: 'startTool',
-          output: timeoutMessage,
+        completeError(
+          TimeoutException(
+            'Timed out waiting for tool $toolId to become ready',
+            Duration(seconds: timeoutSeconds),
+          ),
+          StackTrace.current,
         );
-        if (!isClosed) {
-          _pushData(
-            streamController,
-            EventType.DATA,
-            jsonEncode(timeoutDto.toJson()),
-            logMessage: 'startTool.timeout',
-          );
-        }
-        logger.log(
-          LogModule.http,
-          'startTool.timeout',
-          detail: 'toolId: $toolId timeout: $timeoutSeconds',
-          level: Level.INFO,
-        );
-        completer.complete();
-        closeStream();
       });
     }
 
@@ -496,7 +508,8 @@ class ToolController {
     logger.log(
       LogModule.http,
       "stopTool.output",
-      detail: jsonEncode(toolIdDto.toJson()),
+      detail: "toolId=$toolId",
+      level: Level.FINE,
     );
     return Response.ok(jsonEncode(toolIdDto.toJson()), headers: JSON_HEADERS);
   }
@@ -514,7 +527,8 @@ class ToolController {
     logger.log(
       LogModule.http,
       "deleteTool.output",
-      detail: jsonEncode(toolIdDto.toJson()),
+      detail: "toolId=$toolId",
+      level: Level.FINE,
     );
     return Response.ok(jsonEncode(toolIdDto.toJson()), headers: JSON_HEADERS);
   }
@@ -534,7 +548,8 @@ class ToolController {
     logger.log(
       LogModule.http,
       "callTool.output",
-      detail: jsonEncode(toolReturn.toJson()),
+      detail: "toolId=$toolId, callId=${toolReturn.id}",
+      level: Level.FINE,
     );
     return Response.ok(jsonEncode(toolReturn.toJson()), headers: JSON_HEADERS);
   }
@@ -614,7 +629,9 @@ class ToolController {
     logger.log(
       LogModule.http,
       "loadTool.output",
-      detail: jsonEncode(responseBody),
+      detail:
+          "toolId=$toolId, bytes=${utf8.encode(jsonEncode(responseBody)).length}",
+      level: Level.FINE,
     );
     return Response.ok(jsonEncode(responseBody), headers: JSON_HEADERS);
   }
@@ -636,12 +653,10 @@ class ToolController {
     logger.log(
       LogModule.http,
       "setAlias",
-      detail: jsonEncode(toolDto.toJson()),
+      detail: "toolId=$toolId",
+      level: Level.FINE,
     );
-    return Response.ok(
-      jsonEncode(ToolDto.fromModel(toolModel).toJson()),
-      headers: JSON_HEADERS,
-    );
+    return Response.ok(jsonEncode(toolDto.toJson()), headers: JSON_HEADERS);
   }
 
   bool _containsReservedCliArgument(String arg) {
@@ -667,7 +682,8 @@ class ToolController {
     logger.log(
       LogModule.sse,
       logMessage ?? "tool.pushData",
-      detail: "eventType: $eventType, data: $dataString",
+      detail: "eventType=$eventType, bytes=${utf8.encode(dataString).length}",
+      level: Level.FINE,
     );
     String data = "event:${sseEvent ?? eventType}\ndata:$dataString\n\n";
     streamController.sink.add(utf8.encode(data));
@@ -684,5 +700,16 @@ class ToolController {
         headers: JSON_HEADERS,
       );
     }
+  }
+
+  Future<Response?> _validateToolEventAccess(Request request) async {
+    final authenticator = hostAuthenticator;
+    if (authenticator != null &&
+        authenticator.authorize(
+          request.headers[HOST_MANAGEMENT_TOKEN_HEADER],
+        )) {
+      return null;
+    }
+    return _validateDaemonApiKey(request);
   }
 }

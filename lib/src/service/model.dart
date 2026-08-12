@@ -114,7 +114,9 @@ class VersionModel {
       'artifactRegistryV2',
       'builtinReconcileV1',
       'pullSseV1',
+      'startToolTerminalV1',
       'toolMaterializationV1',
+      'toolEventsV1',
     ],
   });
 }

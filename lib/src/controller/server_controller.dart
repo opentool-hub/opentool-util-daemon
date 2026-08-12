@@ -41,7 +41,13 @@ class ServerController {
     String responseBodyStr = jsonEncode(
       serverDtos.map((e) => e.toJson()).toList(),
     );
-    logger.log(LogModule.http, "listServers", detail: responseBodyStr);
+    logger.log(
+      LogModule.http,
+      "listServers.output",
+      detail:
+          "count=${serverDtos.length}, bytes=${utf8.encode(responseBodyStr).length}",
+      level: Level.FINE,
+    );
     return Response.ok(responseBodyStr, headers: JSON_HEADERS);
   }
 
@@ -123,7 +129,12 @@ class ServerController {
       'serverId': serverId,
       'artifactRemoved': artifactRemoved,
     };
-    logger.log(LogModule.http, "deleteServer", detail: jsonEncode(body));
+    logger.log(
+      LogModule.http,
+      "deleteServer.output",
+      detail: "serverId=$serverId, artifactRemoved=$artifactRemoved",
+      level: Level.FINE,
+    );
     return Response.ok(jsonEncode(body), headers: JSON_HEADERS);
   }
 
@@ -264,7 +275,8 @@ class ServerController {
     logger.log(
       LogModule.http,
       "exportServer",
-      detail: jsonEncode(serverIdDto.toJson()),
+      detail: "serverId=$serverId",
+      level: Level.FINE,
     );
     return Response.ok(jsonEncode(serverIdDto.toJson()), headers: JSON_HEADERS);
   }
@@ -279,7 +291,8 @@ class ServerController {
     logger.log(
       LogModule.http,
       "importServer",
-      detail: jsonEncode(serverDto.toJson()),
+      detail: "serverId=${serverDto.id}",
+      level: Level.FINE,
     );
     return Response.ok(jsonEncode(serverDto.toJson()), headers: JSON_HEADERS);
   }
@@ -290,7 +303,9 @@ class ServerController {
     final authenticator = hostAuthenticator;
     if (service == null ||
         authenticator == null ||
-        !authenticator.authorize(request.headers['x-opentool-host-token'])) {
+        !authenticator.authorize(
+          request.headers[HOST_MANAGEMENT_TOKEN_HEADER],
+        )) {
       return Response.forbidden(
         jsonEncode({
           'error': {
@@ -351,7 +366,8 @@ class ServerController {
     logger.log(
       LogModule.http,
       "setAlias",
-      detail: jsonEncode(serverDto.toJson()),
+      detail: "serverId=$serverId",
+      level: Level.FINE,
     );
     return Response.ok(jsonEncode(serverDto.toJson()), headers: JSON_HEADERS);
   }
@@ -366,7 +382,8 @@ class ServerController {
     logger.log(
       LogModule.sse,
       logMessage ?? "server.pushData",
-      detail: "eventType: $eventType, data: $dataString",
+      detail: "eventType=$eventType, bytes=${utf8.encode(dataString).length}",
+      level: Level.FINE,
     );
     String data = "event:$eventType\ndata:$dataString\n\n";
     streamController.sink.add(utf8.encode(data));
