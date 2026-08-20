@@ -74,4 +74,81 @@ void main() {
       await temp.delete(recursive: true);
     }
   });
+
+  test(
+    'inspect and extraction preserve safe relative symbolic links',
+    () async {
+      final temp = await Directory.systemTemp.createTemp('symlink-zip');
+      String? extracted;
+      try {
+        final archive = Archive()
+          ..addFile(ArchiveFile.string('Opentoolfile.json', '{}'))
+          ..addFile(ArchiveFile.string('framework/Versions/A/tool', 'ready'))
+          ..addFile(_symlink('framework/Current', 'Versions/A'));
+        final archivePath = '${temp.path}/safe.ots';
+        await File(archivePath).writeAsBytes(_encodeUnixArchive(archive));
+
+        final inspection = await ZipUtil.inspect(archivePath);
+        expect(inspection.files, contains('framework/Current'));
+
+        extracted = await ZipUtil.unzipToTemp(archivePath);
+        expect(
+          await Link(p.join(extracted, 'framework', 'Current')).target(),
+          'Versions/A',
+        );
+        expect(
+          await File(
+            p.join(extracted, 'framework', 'Current', 'tool'),
+          ).readAsString(),
+          'ready',
+        );
+      } finally {
+        if (extracted != null) {
+          await Directory(extracted).delete(recursive: true);
+        }
+        await temp.delete(recursive: true);
+      }
+    },
+  );
+
+  test('inspect rejects symbolic links that escape the archive', () async {
+    final temp = await Directory.systemTemp.createTemp('unsafe-symlink-zip');
+    try {
+      final archive = Archive()
+        ..addFile(ArchiveFile.string('Opentoolfile.json', '{}'))
+        ..addFile(_symlink('framework/Current', '../../outside'));
+      final archivePath = '${temp.path}/unsafe.ots';
+      await File(archivePath).writeAsBytes(_encodeUnixArchive(archive));
+
+      await expectLater(
+        ZipUtil.inspect(archivePath),
+        throwsA(isA<FormatException>()),
+      );
+    } finally {
+      await temp.delete(recursive: true);
+    }
+  });
+}
+
+ArchiveFile _symlink(String name, String target) {
+  // Zip symlinks store their relative target as entry content and advertise
+  // the POSIX symlink file type through the external mode bits.
+  return ArchiveFile.string(name, target)
+    ..mode = 0xa1ff
+    ..symbolicLink = target;
+}
+
+List<int> _encodeUnixArchive(Archive archive) {
+  final bytes = ZipEncoder().encode(archive);
+  // archive's encoder currently marks central-directory records as MS-DOS,
+  // while ZIP symlinks are identified only for UNIX-created records.
+  for (var index = 0; index <= bytes.length - 6; index++) {
+    if (bytes[index] == 0x50 &&
+        bytes[index + 1] == 0x4b &&
+        bytes[index + 2] == 0x01 &&
+        bytes[index + 3] == 0x02) {
+      bytes[index + 5] = 3;
+    }
+  }
+  return bytes;
 }

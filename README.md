@@ -28,7 +28,7 @@ The daemon will persist metadata under `~/.opentool` (servers, tools, config) an
 - Any field you provide overrides the default while other properties stay untouched; e.g. `{ "server": { "port": 20000 } }` keeps the host/prefix unchanged.
 - Both `--config <path>` and `--config=<path>` load an explicit file. A missing or invalid explicitly selected file fails startup instead of silently selecting another configuration.
 - The repository `bin/config.json` binds `127.0.0.1`. Keep the daemon on loopback unless an authenticated network boundary is provided.
-- Release builds use the compile-time daemon version (`0.5.0` in this release), so AOT binaries do not depend on a runtime `pubspec.yaml`.
+- Release builds use the compile-time daemon version (`0.5.1` in this release), so AOT binaries do not depend on a runtime `pubspec.yaml`.
 
 ---
 
@@ -99,7 +99,7 @@ Hub authentication and publishing are intentionally not daemon responsibilities.
 ```json
 {
   "name": "OpenTool Daemon",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "apiVersion": 2,
   "capabilities": ["artifactRegistryV2", "builtinReconcileV1", "pullSseV1", "startToolTerminalV1", "toolMaterializationV1"]
 }

@@ -28,7 +28,7 @@ dart run bin/opentool_daemon.dart --config bin/config.json
 - 只需写入你想覆盖的字段即可，其余保持默认，例如 `{ "server": { "port": 20000 } }` 只会修改端口。
 - `--config <path>` 与 `--config=<path>` 都会加载指定文件；显式指定的文件不存在或内容无效时，daemon 会启动失败，不会静默使用另一份配置。
 - 仓库内的 `bin/config.json` 固定使用 `127.0.0.1`。除非已有可靠的网络鉴权边界，否则不要把 daemon 暴露到非本机网络。
-- 发布构建使用编译期版本（当前为 `0.5.0`），AOT 二进制不依赖运行目录中的 `pubspec.yaml`。
+- 发布构建使用编译期版本（当前为 `0.5.1`），AOT 二进制不依赖运行目录中的 `pubspec.yaml`。
 
 ---
 
@@ -96,7 +96,7 @@ daemon 不承担 Hub 登录和发布，只负责公开制品的解析、下载�
 ```json
 {
   "name": "OpenTool Daemon",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "apiVersion": 2,
   "capabilities": ["artifactRegistryV2", "builtinReconcileV1", "pullSseV1", "startToolTerminalV1", "toolMaterializationV1"]
 }

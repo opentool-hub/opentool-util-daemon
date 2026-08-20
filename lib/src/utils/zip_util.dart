@@ -86,10 +86,15 @@ class ZipUtil {
 
     final decoded = await _decodeAndValidate(zipFilePath);
     try {
+      final symbolicLinks = <ArchiveFile>[];
       for (final entry in decoded.archive.files) {
         final cleanName = p.posix.normalize(entry.name);
         final components = p.posix.split(cleanName);
         final filePath = p.joinAll([extractDir, ...components]);
+        if (entry.isSymbolicLink) {
+          symbolicLinks.add(entry);
+          continue;
+        }
         if (entry.isDirectory) {
           await Directory(filePath).create(recursive: true);
           continue;
@@ -106,6 +111,14 @@ class ZipUtil {
         } finally {
           await output.close();
         }
+      }
+      // Links are created after regular entries so framework link targets are
+      // already present. `_decodeAndValidate` guarantees every target remains
+      // inside the extraction root.
+      for (final entry in symbolicLinks) {
+        final cleanName = p.posix.normalize(entry.name);
+        final filePath = p.joinAll([extractDir, ...p.posix.split(cleanName)]);
+        await Link(filePath).create(entry.symbolicLink!, recursive: true);
       }
       return extractDir;
     } catch (_) {
@@ -150,7 +163,27 @@ class ZipUtil {
             'Artifact contains a duplicate path: $cleanName',
           );
         }
-        if (entry.isSymbolicLink || (!entry.isFile && !entry.isDirectory)) {
+        if (entry.isSymbolicLink) {
+          final target = entry.symbolicLink;
+          if (target == null ||
+              target.isEmpty ||
+              target.contains(r'\') ||
+              p.posix.isAbsolute(target)) {
+            throw FormatException(
+              'Artifact contains an unsafe symbolic link: $originalName',
+            );
+          }
+          final resolvedTarget = p.posix.normalize(
+            p.posix.join(p.posix.dirname(cleanName), target),
+          );
+          if (resolvedTarget == '.' ||
+              resolvedTarget == '..' ||
+              resolvedTarget.startsWith('../')) {
+            throw FormatException(
+              'Artifact symbolic link escapes the archive: $originalName',
+            );
+          }
+        } else if (!entry.isFile && !entry.isDirectory) {
           throw FormatException('Artifact contains a special file: $cleanName');
         }
         if (entry.size < 0 || totalSize > maxUncompressedSize - entry.size) {
@@ -159,7 +192,7 @@ class ZipUtil {
           );
         }
         totalSize += entry.size;
-        if (entry.isFile) files.add(cleanName);
+        if (entry.isFile || entry.isSymbolicLink) files.add(cleanName);
         if (originalName == OPENTOOL_FILE_JSON_NAME) {
           manifestCount++;
           if (entry.size > maxManifestSize) {
