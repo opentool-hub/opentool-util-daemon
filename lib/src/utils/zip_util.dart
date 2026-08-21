@@ -88,7 +88,7 @@ class ZipUtil {
     try {
       final symbolicLinks = <ArchiveFile>[];
       for (final entry in decoded.archive.files) {
-        final cleanName = p.posix.normalize(entry.name);
+        final cleanName = _normalizeEntryName(entry.name);
         final components = p.posix.split(cleanName);
         final filePath = p.joinAll([extractDir, ...components]);
         if (entry.isSymbolicLink) {
@@ -116,7 +116,7 @@ class ZipUtil {
       // already present. `_decodeAndValidate` guarantees every target remains
       // inside the extraction root.
       for (final entry in symbolicLinks) {
-        final cleanName = p.posix.normalize(entry.name);
+        final cleanName = _normalizeEntryName(entry.name);
         final filePath = p.joinAll([extractDir, ...p.posix.split(cleanName)]);
         await Link(filePath).create(entry.symbolicLink!, recursive: true);
       }
@@ -148,9 +148,11 @@ class ZipUtil {
       final files = <String>{};
       for (final entry in archive.files) {
         final originalName = entry.name;
-        final cleanName = p.posix.normalize(originalName);
-        if (originalName.contains(r'\') ||
-            p.posix.isAbsolute(originalName) ||
+        final portableName = originalName.replaceAll(r'\', '/');
+        final cleanName = p.posix.normalize(portableName);
+        if (p.posix.isAbsolute(portableName) ||
+            p.windows.isAbsolute(originalName) ||
+            RegExp(r'^[a-zA-Z]:').hasMatch(originalName) ||
             cleanName == '..' ||
             cleanName.startsWith('../') ||
             cleanName == '.') {
@@ -193,7 +195,7 @@ class ZipUtil {
         }
         totalSize += entry.size;
         if (entry.isFile || entry.isSymbolicLink) files.add(cleanName);
-        if (originalName == OPENTOOL_FILE_JSON_NAME) {
+        if (cleanName == OPENTOOL_FILE_JSON_NAME) {
           manifestCount++;
           if (entry.size > maxManifestSize) {
             throw const FormatException('Opentoolfile.json is too large');
@@ -211,6 +213,12 @@ class ZipUtil {
       rethrow;
     }
   }
+
+  /// ZIP uses POSIX separators, but existing Windows-built `.ots` artifacts
+  /// contain backslashes. Canonicalize both forms before duplicate, traversal,
+  /// entrypoint, and extraction checks so the security policy stays uniform.
+  static String _normalizeEntryName(String name) =>
+      p.posix.normalize(name.replaceAll(r'\', '/'));
 }
 
 class _DecodedArchive {

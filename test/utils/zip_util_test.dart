@@ -49,6 +49,60 @@ void main() {
     await temp.delete(recursive: true);
   });
 
+  test('inspect and extraction normalize Windows ZIP separators', () async {
+    final temp = await Directory.systemTemp.createTemp('windows-zip');
+    String? extracted;
+    try {
+      final archive = Archive()
+        ..addFile(ArchiveFile.string('Opentoolfile.json', '{}'))
+        ..addFile(ArchiveFile.string(r'bin\demo.exe', 'ready'));
+      final archivePath = '${temp.path}/windows.ots';
+      await File(archivePath).writeAsBytes(ZipEncoder().encode(archive));
+
+      final inspection = await ZipUtil.inspect(archivePath);
+      expect(inspection.files, contains('bin/demo.exe'));
+
+      extracted = await ZipUtil.unzipToTemp(archivePath);
+      expect(
+        await File(p.join(extracted, 'bin', 'demo.exe')).readAsString(),
+        'ready',
+      );
+    } finally {
+      if (extracted != null) {
+        await Directory(extracted).delete(recursive: true);
+      }
+      await temp.delete(recursive: true);
+    }
+  });
+
+  test('inspect rejects Windows traversal and canonical duplicates', () async {
+    final temp = await Directory.systemTemp.createTemp('unsafe-windows-zip');
+    try {
+      final traversal = Archive()
+        ..addFile(ArchiveFile.string('Opentoolfile.json', '{}'))
+        ..addFile(ArchiveFile.string(r'..\escape', 'unsafe'));
+      final traversalPath = '${temp.path}/traversal.ots';
+      await File(traversalPath).writeAsBytes(ZipEncoder().encode(traversal));
+      await expectLater(
+        ZipUtil.inspect(traversalPath),
+        throwsA(isA<FormatException>()),
+      );
+
+      final duplicate = Archive()
+        ..addFile(ArchiveFile.string('Opentoolfile.json', '{}'))
+        ..addFile(ArchiveFile.string('bin/demo.exe', 'one'))
+        ..addFile(ArchiveFile.string(r'bin\demo.exe', 'two'));
+      final duplicatePath = '${temp.path}/duplicate.ots';
+      await File(duplicatePath).writeAsBytes(ZipEncoder().encode(duplicate));
+      await expectLater(
+        ZipUtil.inspect(duplicatePath),
+        throwsA(isA<FormatException>()),
+      );
+    } finally {
+      await temp.delete(recursive: true);
+    }
+  });
+
   test('inspect rejects missing and duplicate root manifests', () async {
     final temp = await Directory.systemTemp.createTemp('manifest-zip');
     try {

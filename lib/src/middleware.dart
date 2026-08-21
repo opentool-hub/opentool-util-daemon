@@ -16,7 +16,7 @@ Middleware exceptionHandler() {
           LogModule.http,
           'request.error',
           detail:
-              'method: ${request.method}, path: ${request.url.path}, code: ${mapped.code}\n$stack',
+              'method: ${request.method}, path: ${request.url.path}, code: ${mapped.code}, error: $e\n$stack',
           level: Level.WARNING,
         );
         return Response(
