@@ -49,10 +49,28 @@ class OpentoolfileMissingArgumentException implements Exception {
   }
 }
 
-class SystemMismatchException implements Exception {
-  late String message;
-
+class SystemMismatchException extends ArtifactOperationException {
   SystemMismatchException(
+    String nativeOs,
+    String nativeCpuArch,
+    String remoteOs,
+    String remoteCpuArch, {
+    String? nativeAbi,
+    String? remoteAbi,
+  }) : super(
+         code: 'PLATFORM_MISMATCH',
+         message: _platformMismatchMessage(
+           nativeOs,
+           nativeCpuArch,
+           remoteOs,
+           remoteCpuArch,
+           nativeAbi: nativeAbi,
+           remoteAbi: remoteAbi,
+         ),
+         retryable: false,
+       );
+
+  static String _platformMismatchMessage(
     String nativeOs,
     String nativeCpuArch,
     String remoteOs,
@@ -66,14 +84,13 @@ class SystemMismatchException implements Exception {
     final remotePlatform = remoteAbi == null
         ? '$remoteOs-$remoteCpuArch'
         : '$remoteOs-$remoteCpuArch-$remoteAbi';
-    this.message =
-        'System mismatch - native: $nativePlatform, remote: $remotePlatform';
+    return 'Server platform $remotePlatform is not compatible with this '
+        'device ($nativePlatform). Import an .ots file built for '
+        '$nativePlatform.';
   }
 
   @override
-  String toString() {
-    return 'SystemMismatchException: $message';
-  }
+  String toString() => 'SystemMismatchException: $message';
 }
 
 class ApiKeyNotFoundException implements Exception {

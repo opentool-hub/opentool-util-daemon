@@ -112,7 +112,20 @@ void main() {
 
       await expectLater(
         service.import(bundle.zipPath),
-        throwsA(isA<SystemMismatchException>()),
+        throwsA(
+          isA<SystemMismatchException>()
+              .having((error) => error.code, 'code', 'PLATFORM_MISMATCH')
+              .having((error) => error.retryable, 'retryable', isFalse)
+              .having(
+                (error) => error.message,
+                'message',
+                allOf(
+                  contains('not-${SystemUtil.getOS()}'),
+                  contains(SystemUtil.getOS()),
+                  contains('Import an .ots file built for'),
+                ),
+              ),
+        ),
       );
       expect(await servers.list(), isEmpty);
       expect(await artifacts.list(), isEmpty);
