@@ -122,6 +122,7 @@ ServerSourceDto _$ServerSourceDtoFromJson(Map<String, dynamic> json) =>
       namespace: json['namespace'] as String,
       name: json['name'] as String,
       version: json['version'] as String,
+      versionRevision: (json['versionRevision'] as num?)?.toInt(),
       versionDigest: json['versionDigest'] as String?,
       artifactId: json['artifactId'] as String?,
       artifactDigest: json['artifactDigest'] as String?,
@@ -144,6 +145,7 @@ Map<String, dynamic> _$ServerSourceDtoToJson(ServerSourceDto instance) {
   val['namespace'] = instance.namespace;
   val['name'] = instance.name;
   val['version'] = instance.version;
+  writeNotNull('versionRevision', instance.versionRevision);
   writeNotNull('versionDigest', instance.versionDigest);
   writeNotNull('artifactId', instance.artifactId);
   writeNotNull('artifactDigest', instance.artifactDigest);

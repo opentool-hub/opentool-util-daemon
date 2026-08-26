@@ -65,6 +65,7 @@ void main() {
             namespace: 'local',
             name: 'demo',
             version: '1.0.0',
+            versionRevision: 1,
             versionDigest: 'sha256:${List.filled(64, 'a').join()}',
             hubArtifactId: 'artifact-1',
           ),
@@ -181,6 +182,61 @@ void main() {
         ),
       );
 
+      expect(await artifacts.list(), isEmpty);
+      expect(await servers.list(), isEmpty);
+      expect(await operations.list(), isEmpty);
+    });
+
+    test('persists a declared artifact ABI', () async {
+      final muslArtifact = await _createArtifact(
+        root,
+        marker: 'musl-artifact',
+        abi: 'musl',
+      );
+
+      await registry.registerArtifact(
+        muslArtifact.path,
+        ServerReferenceInput.local(
+          kind: 'import',
+          namespace: 'local',
+          name: 'demo',
+          version: '1.0.0',
+        ),
+        const RegistrationPolicy(),
+        expectedMetadata: const ArtifactExpectedMetadata(
+          platform: ServerPlatform(os: 'linux', arch: 'arm64', abi: 'musl'),
+        ),
+      );
+
+      expect((await artifacts.list()).single.platformAbi, 'musl');
+    });
+
+    test('rejects an ABI that is invalid for the artifact OS', () async {
+      final invalidArtifact = await _createArtifact(
+        root,
+        marker: 'invalid-abi',
+        abi: 'native',
+      );
+
+      await expectLater(
+        registry.registerArtifact(
+          invalidArtifact.path,
+          ServerReferenceInput.local(
+            kind: 'import',
+            namespace: 'local',
+            name: 'demo',
+            version: '1.0.0',
+          ),
+          const RegistrationPolicy(),
+        ),
+        throwsA(
+          isA<ArtifactOperationException>().having(
+            (error) => error.code,
+            'code',
+            'PLATFORM_NOT_SUPPORTED',
+          ),
+        ),
+      );
       expect(await artifacts.list(), isEmpty);
       expect(await servers.list(), isEmpty);
       expect(await operations.list(), isEmpty);
@@ -645,6 +701,7 @@ Future<File> _createArtifact(
   required String marker,
   String entrypoint = 'bin/demo',
   Map<String, String> files = const {'bin/demo': ''},
+  String? abi,
 }) async {
   final source = Directory(p.join(root.path, 'source-$marker'));
   await source.create(recursive: true);
@@ -653,9 +710,22 @@ Future<File> _createArtifact(
     await file.parent.create(recursive: true);
     await file.writeAsString(entry.value.isEmpty ? marker : entry.value);
   }
-  await File(p.join(source.path, 'Opentoolfile.json')).writeAsString('''
-{"name":"demo","tag":"1.0.0","os":"linux","cpuArch":"arm64","build":{"args":{},"runs":[]},"run":{"envs":{},"workdir":".","entrypoint":"$entrypoint","cmds":[]}}
-''');
+  await File(p.join(source.path, 'Opentoolfile.json')).writeAsString(
+    jsonEncode({
+      'name': 'demo',
+      'tag': '1.0.0',
+      'os': 'linux',
+      'cpuArch': 'arm64',
+      if (abi != null) 'abi': abi,
+      'build': {'args': <String, String>{}, 'runs': <String>[]},
+      'run': {
+        'envs': <String, String>{},
+        'workdir': '.',
+        'entrypoint': entrypoint,
+        'cmds': <String>[],
+      },
+    }),
+  );
   final output = File(p.join(root.path, '$marker.ots'));
   await ZipUtil.zipDirectory(source.path, output.path);
   return output;

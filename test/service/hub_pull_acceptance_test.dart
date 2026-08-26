@@ -45,6 +45,7 @@ void main() {
             expect(installed.registry, fixture.registry);
             expect(installed.namespace, 'litevar');
             expect(installed.version, '1.2.3');
+            expect(installed.versionRevision, 1);
             expect(installed.artifactDigest, fixture.artifactDigest);
             expect(installed.platform?.os, target.os);
             expect(installed.platform?.arch, target.arch);
@@ -273,6 +274,7 @@ class _HubFixture {
         'tag': '1.2.3',
         'os': target.os,
         'cpuArch': target.arch,
+        'abi': target.abi,
         'build': {'args': <String, String>{}, 'runs': <String>[]},
         'run': {
           'envs': <String, String>{},
@@ -295,6 +297,7 @@ class _HubFixture {
           jsonEncode({
             'tool': {'namespace': 'litevar', 'name': 'demo'},
             'version': '1.2.3',
+            'versionRevision': 1,
             'versionDigest': 'sha256:${List.filled(64, 'b').join()}',
             'artifact': {
               'id': 'artifact-${target.os}-${target.arch}-${target.abi}',

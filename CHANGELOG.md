@@ -1,5 +1,7 @@
 ## 0.5.1
 
+- Record the detected platform ABI in generated `.ots` manifests and exported
+  artifact filenames; legacy Linux manifests without ABI default to `glibc`
 - Accept and safely materialize relative symbolic links that remain inside an
   `.ots` archive, including signed macOS framework bundles
 - Continue rejecting absolute or archive-escaping symbolic-link targets

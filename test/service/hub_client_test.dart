@@ -56,6 +56,7 @@ void main() {
           jsonEncode({
             'tool': {'namespace': 'litevar', 'name': 'demo'},
             'version': '1.2.3',
+            'versionRevision': 2,
             'versionDigest': 'sha256:${List.filled(64, 'a').join()}',
             'artifact': {
               'id': 'artifact-1',
@@ -96,6 +97,7 @@ void main() {
         });
         expect(observed?.headers.value('user-agent'), 'opentool-daemon/0.3.0');
         expect(observed?.headers.value('x-agentos-client'), 'cli');
+        expect(result.versionRevision, 2);
         expect(result.artifact.id, 'artifact-1');
       } finally {
         await server.close(force: true);

@@ -6,12 +6,15 @@ part 'dto.g.dart';
 class ResolveResult {
   final ResolvedTool tool;
   final String version;
+  @JsonKey(defaultValue: 1)
+  final int versionRevision;
   final String versionDigest;
   final ResolvedArtifact artifact;
 
   ResolveResult({
     required this.tool,
     required this.version,
+    required this.versionRevision,
     required this.versionDigest,
     required this.artifact,
   });

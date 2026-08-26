@@ -103,6 +103,7 @@ ServerDao
   sourceKind           hub | builtin | import | build
   sourceKey            来源内稳定唯一键
   registry             Hub 可选
+  versionRevision      Hub 可选
   versionDigest        Hub 可选
   hubArtifactId        Hub 可选
   builtinBundleId      Builtin 可选
@@ -267,11 +268,14 @@ source identity lock → artifact digest lock
 sourceKind=hub
 protected=false
 registry=https://...
+versionRevision=2
 versionDigest=sha256:...
 ```
 
 - 只接受精确 SemVer。
-- 相同 Hub ref 和相同 digest 返回原 Server。
+- 相同 Hub ref 和相同 Artifact digest 返回原 Server；若 Hub revision 已增加，则原子更新
+  `versionRevision/versionDigest`，不重复下载制品。
+- Hub revision 不允许回退，同一 revision 也不允许出现不同 `versionDigest`。
 - 相同 Hub ref 返回不同 digest 时返回不可重试冲突。
 - Published/Deprecated 的可拉取策略必须与 Hub 契约统一；首个目标版本按产品要求仅允许
   Published 时，Hub resolve 也必须拒绝 Deprecated，不能只依赖 UI。

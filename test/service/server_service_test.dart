@@ -8,6 +8,7 @@ import 'package:opentool_daemon/src/service/exception.dart';
 import 'package:opentool_daemon/src/service/server_service.dart';
 import 'package:opentool_daemon/src/storage/artifact_storage.dart';
 import 'package:opentool_daemon/src/storage/dao.dart';
+import 'package:opentool_daemon/src/utils/platform_detector.dart';
 import 'package:opentool_daemon/src/utils/system_util.dart';
 import 'package:opentool_daemon/src/utils/zip_util.dart';
 import 'package:path/path.dart' as p;
@@ -115,6 +116,101 @@ void main() {
       );
       expect(await servers.list(), isEmpty);
       expect(await artifacts.list(), isEmpty);
+    });
+
+    test('build embeds the detected ABI in the artifact manifest', () async {
+      final source = Directory(p.join(root.path, 'build-source'));
+      final dist = Directory(p.join(source.path, 'dist'));
+      await dist.create(recursive: true);
+      await File(p.join(source.path, 'Opentoolfile')).writeAsString('''
+WORKDIR dist
+ENTRYPOINT ["run.sh"]
+''');
+      await File(p.join(dist.path, 'run.sh')).writeAsString('#!/bin/sh\n');
+      final buildService = ServerService(
+        servers,
+        artifactRegistry: registry,
+        platformDetector: PlatformDetector(
+          operatingSystem: 'linux',
+          abiName: 'linux_arm64',
+          environment: const {'OPENTOOL_LINUX_ABI': 'musl'},
+        ),
+      );
+
+      await buildService.buildServer(
+        p.join(source.path, 'Opentoolfile'),
+        'abi-demo',
+        '1.0.0',
+        (_, _) {},
+        () {},
+      );
+
+      final stored = (await artifacts.list()).single;
+      final inspection = await ZipUtil.inspect(stored.filePath);
+      expect(inspection.manifest['os'], 'linux');
+      expect(inspection.manifest['cpuArch'], 'arm64');
+      expect(inspection.manifest['abi'], 'musl');
+      expect(stored.platformAbi, 'musl');
+
+      final built = (await buildService.list()).single;
+      final exportDirectory = Directory(p.join(root.path, 'exports'));
+      await exportDirectory.create();
+      await buildService.export(built.id, exportDirectory.path);
+      expect(
+        await File(
+          p.join(
+            exportDirectory.path,
+            'local-abi-demo-1.0.0-linux-arm64-musl.ots',
+          ),
+        ).exists(),
+        isTrue,
+      );
+    });
+
+    test('treats a legacy Linux manifest as glibc', () async {
+      final bundle = await _createTestOtsBundle(
+        'legacy-glibc',
+        os: 'linux',
+        cpuArch: 'arm64',
+      );
+      addTearDown(bundle.dispose);
+      final importService = ServerService(
+        servers,
+        artifactRegistry: registry,
+        platformDetector: PlatformDetector(
+          operatingSystem: 'linux',
+          abiName: 'linux_arm64',
+          environment: const {'OPENTOOL_LINUX_ABI': 'glibc'},
+        ),
+      );
+
+      final imported = await importService.import(bundle.zipPath);
+
+      expect(imported.platform?.abi, 'glibc');
+      expect((await artifacts.list()).single.platformAbi, 'glibc');
+    });
+
+    test('does not reinterpret a legacy Linux manifest as musl', () async {
+      final bundle = await _createTestOtsBundle(
+        'legacy-musl',
+        os: 'linux',
+        cpuArch: 'arm64',
+      );
+      addTearDown(bundle.dispose);
+      final importService = ServerService(
+        servers,
+        artifactRegistry: registry,
+        platformDetector: PlatformDetector(
+          operatingSystem: 'linux',
+          abiName: 'linux_arm64',
+          environment: const {'OPENTOOL_LINUX_ABI': 'musl'},
+        ),
+      );
+
+      await expectLater(
+        importService.import(bundle.zipPath),
+        throwsA(isA<SystemMismatchException>()),
+      );
     });
 
     test('delete removes the last Artifact reference and content', () async {

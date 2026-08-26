@@ -101,7 +101,7 @@ Hub authentication and publishing are intentionally not daemon responsibilities.
   "name": "OpenTool Daemon",
   "version": "0.5.1",
   "apiVersion": 2,
-  "capabilities": ["artifactRegistryV2", "builtinReconcileV1", "pullSseV1", "startToolTerminalV1", "toolMaterializationV1"]
+  "capabilities": ["artifactRegistryV2", "builtinReconcileV1", "hubVersionRevisionV1", "pullSseV1", "startToolTerminalV1", "toolMaterializationV1"]
 }
 ```
 
@@ -159,6 +159,8 @@ Removes the selected key immediately; running tools that relied on that key will
       "namespace": "local",
       "name": "demo-server",
       "version": "latest",
+      "versionRevision": 2,
+      "versionDigest": "sha256:...",
       "artifactDigest": "sha256:...",
       "artifactMediaType": "application/vnd.opentool.ots"
     },
@@ -169,11 +171,11 @@ Removes the selected key immediately; running tools that relied on that key will
 ]
 ```
 
-Server versions are immutable. Register or pull a different version to create a different Server reference.
+Installed platform artifacts are immutable. A repeated pull of the same SemVer advances its stored Hub `versionRevision` and `versionDigest` without downloading again when the platform artifact itself is unchanged.
 
 ### POST /servers/pull
 
-The request body selects an exact immutable Hub version. The daemon detects the local platform; clients cannot select an artifact directly.
+The request body selects an exact Hub SemVer and resolves its current append-only revision. The daemon detects the local platform; clients cannot select an artifact directly.
 
 ```json
 {
@@ -249,9 +251,14 @@ Streams build progress for each command listed in `Opentoolfile`. `event:DATA` p
 }
 ```
 `event:DONE` closes the stream once the `.ots` artifact is committed to the content-addressed Artifact Registry.
+The generated root `Opentoolfile.json` records `os`, `cpuArch`, and `abi`.
+The daemon detects `glibc` or `musl` on Linux and writes `native` on macOS and
+Windows. Set `OPENTOOL_LINUX_ABI=glibc|musl` only when automatic Linux ABI
+detection is unavailable. Legacy Linux manifests without `abi` are interpreted
+as `glibc`; they are not reinterpreted from the current host ABI.
 
 ### GET /servers/{serverId}/export
-Provide a JSON body `{ "path": "/tmp/output" }` describing the destination directory. The daemon copies the `.ots` into that folder using the pattern `<namespace>-<name>-<version>-<os>-<cpu>.ots`.
+Provide a JSON body `{ "path": "/tmp/output" }` describing the destination directory. The daemon copies the `.ots` into that folder using the pattern `<namespace>-<name>-<version>-<os>-<cpu>-<abi>.ots`.
 
 ### POST /servers/import
 ```json

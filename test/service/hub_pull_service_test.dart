@@ -7,6 +7,7 @@ import 'package:opentool_daemon/src/hub/hub_client.dart';
 import 'package:opentool_daemon/src/service/artifact_downloader.dart';
 import 'package:opentool_daemon/src/service/exception.dart';
 import 'package:opentool_daemon/src/service/hub_pull_service.dart';
+import 'package:opentool_daemon/src/service/model.dart';
 import 'package:opentool_daemon/src/utils/platform_detector.dart';
 import 'package:opentool_daemon/src/utils/zip_util.dart';
 import 'package:path/path.dart' as p;
@@ -89,7 +90,9 @@ void main() {
     await ZipUtil.zipDirectory(bundle.path, bundlePath);
     final bytes = await File(bundlePath).readAsBytes();
     final artifactDigest = 'sha256:${sha256.convert(bytes)}';
-    final versionDigest = 'sha256:${List.filled(64, 'b').join()}';
+    var versionRevision = 1;
+    var versionDigest = 'sha256:${List.filled(64, 'b').join()}';
+    final revisedVersionDigest = 'sha256:${List.filled(64, 'd').join()}';
     var advertisedDigest = artifactDigest;
     var resolveCount = 0;
     var downloadCount = 0;
@@ -103,6 +106,7 @@ void main() {
           jsonEncode({
             'tool': {'namespace': 'litevar', 'name': 'demo'},
             'version': '1.2.3',
+            'versionRevision': versionRevision,
             'versionDigest': versionDigest,
             'artifact': {
               'id': 'artifact_demo',
@@ -155,6 +159,8 @@ void main() {
         pullRequest,
         onEvent: firstEvents.add,
       );
+      versionRevision = 2;
+      versionDigest = revisedVersionDigest;
       final second = await pullService.pull(
         pullRequest,
         onEvent: secondEvents.add,
@@ -171,13 +177,32 @@ void main() {
           ),
         ),
       );
+      advertisedDigest = artifactDigest;
+      versionRevision = 1;
+      versionDigest = 'sha256:${List.filled(64, 'b').join()}';
+      await expectLater(
+        pullService.pull(pullRequest, onEvent: (_) {}),
+        throwsA(
+          isA<ArtifactOperationException>().having(
+            (error) => error.code,
+            'code',
+            'ARTIFACT_SOURCE_CONFLICT',
+          ),
+        ),
+      );
 
       expect(second.id, first.id);
       expect(third.id, first.id);
-      expect(first.versionDigest, versionDigest);
+      expect(first.versionRevision, 1);
+      expect(first.versionDigest, 'sha256:${List.filled(64, 'b').join()}');
+      expect(second.versionRevision, 2);
+      expect(second.versionDigest, revisedVersionDigest);
       expect(first.artifactDigest, artifactDigest);
       expect(first.platform?.abi, platform.abi);
-      expect(await serverService.list(), hasLength(1));
+      final persisted = await serverService.list();
+      expect(persisted, hasLength(1));
+      expect(persisted.single.versionRevision, 2);
+      expect(persisted.single.versionDigest, revisedVersionDigest);
       expect(
         firstEvents.map((event) => event.data['stage']),
         containsAllInOrder([
@@ -192,7 +217,7 @@ void main() {
         secondEvents.map((event) => event.data['stage']),
         containsAllInOrder(['resolving', 'ready']),
       );
-      expect(resolveCount, 4);
+      expect(resolveCount, 5);
       expect(downloadCount, 1);
     } finally {
       await httpServer.close(force: true);
@@ -201,4 +226,123 @@ void main() {
       await temp.delete(recursive: true);
     }
   });
+
+  test('serializes revision updates for the same Hub source', () async {
+    final platform = await PlatformDetector().detect();
+    final artifactDigest = 'sha256:${List.filled(64, 'a').join()}';
+    final initialVersionDigest = 'sha256:${List.filled(64, 'b').join()}';
+    final httpServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final registry = 'http://${httpServer.address.host}:${httpServer.port}';
+    var resolveCount = 0;
+    final serving = httpServer.listen((request) async {
+      final revision = ++resolveCount;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({
+          'tool': {'namespace': 'litevar', 'name': 'demo'},
+          'version': '1.2.3',
+          'versionRevision': revision + 1,
+          'versionDigest':
+              'sha256:${List.filled(64, revision == 1 ? 'c' : 'd').join()}',
+          'artifact': {
+            'id': 'artifact-demo',
+            'os': platform.os,
+            'arch': platform.arch,
+            'abi': platform.abi,
+            'fileName': 'demo.ots',
+            'mediaType': 'application/vnd.opentool.ots',
+            'size': 1,
+            'digest': artifactDigest,
+            'downloadUrl': '$registry/artifact',
+            'downloadUrlExpiresAt': DateTime.now()
+                .toUtc()
+                .add(const Duration(minutes: 5))
+                .toIso8601String(),
+          },
+        }),
+      );
+      await request.response.close();
+    });
+    final serverService = _ConcurrentFindServerService(
+      initialServers: [
+        ServerModel(
+          id: 'server-demo',
+          alias: 'demo',
+          registry: registry,
+          namespace: 'litevar',
+          name: 'demo',
+          version: '1.2.3',
+          internalId: artifactDigest,
+          artifactId: 'artifact-demo',
+          versionRevision: 1,
+          versionDigest: initialVersionDigest,
+          artifactDigest: artifactDigest,
+          artifactMediaType: 'application/vnd.opentool.ots',
+          artifactSize: 1,
+          platform: platform,
+          sourceKind: 'hub',
+          sourceKey: '$registry|litevar|demo|1.2.3',
+        ),
+      ],
+    );
+    final pullService = HubPullService(
+      serverService: serverService,
+      daemonVersion: 'test',
+    );
+    final request = HubPullRequest.validate(
+      registry: registry,
+      namespace: 'litevar',
+      name: 'demo',
+      version: '1.2.3',
+      client: 'embedded',
+    );
+
+    try {
+      await Future.wait([
+        pullService.pull(request, onEvent: (_) {}),
+        pullService.pull(request, onEvent: (_) {}),
+      ]);
+
+      final persisted = (await serverService.list()).single;
+      expect(resolveCount, 2);
+      expect(serverService.maximumConcurrentFinds, 1);
+      expect(pullService.debugSourceLockCount, 0);
+      expect(persisted.versionRevision, 3);
+      expect(persisted.versionDigest, 'sha256:${List.filled(64, 'd').join()}');
+    } finally {
+      await httpServer.close(force: true);
+      await serving.cancel();
+    }
+  });
+}
+
+class _ConcurrentFindServerService extends FakeServerService {
+  int _activeFinds = 0;
+  int maximumConcurrentFinds = 0;
+
+  _ConcurrentFindServerService({required super.initialServers});
+
+  @override
+  Future<ServerModel?> findHubSource({
+    required String registry,
+    required String namespace,
+    required String name,
+    required String version,
+  }) async {
+    _activeFinds++;
+    if (_activeFinds > maximumConcurrentFinds) {
+      maximumConcurrentFinds = _activeFinds;
+    }
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+      return super.findHubSource(
+        registry: registry,
+        namespace: namespace,
+        name: name,
+        version: version,
+      );
+    } finally {
+      _activeFinds--;
+    }
+  }
 }

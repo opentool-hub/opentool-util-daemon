@@ -38,6 +38,7 @@ class ServerReferenceInput {
   final String version;
   final String? alias;
   final String? registry;
+  final int? versionRevision;
   final String? versionDigest;
   final String? hubArtifactId;
   final String? builtinBundleFamily;
@@ -53,6 +54,7 @@ class ServerReferenceInput {
     required this.version,
     this.alias,
     this.registry,
+    this.versionRevision,
     this.versionDigest,
     this.hubArtifactId,
     this.builtinBundleFamily,
@@ -66,6 +68,7 @@ class ServerReferenceInput {
     required String namespace,
     required String name,
     required String version,
+    required int versionRevision,
     required String versionDigest,
     required String hubArtifactId,
   }) => ServerReferenceInput(
@@ -76,6 +79,7 @@ class ServerReferenceInput {
     version: version,
     alias: name,
     registry: registry,
+    versionRevision: versionRevision,
     versionDigest: versionDigest,
     hubArtifactId: hubArtifactId,
   );
@@ -281,7 +285,10 @@ class ArtifactRegistryService {
                   mediaType: 'application/vnd.opentool.ots',
                   platformOs: inspected.config.os.toLowerCase(),
                   platformArch: inspected.config.cpuArch.toLowerCase(),
-                  platformAbi: expectedMetadata?.platform?.abi ?? '',
+                  platformAbi: OpentoolfileConfigUtil.resolvedAbi(
+                    inspected.config.os,
+                    inspected.config.abi,
+                  ),
                   filePath: contentPath,
                   manifestName: inspected.config.name,
                   manifestVersion: inspected.config.tag ?? NULL_TAG,
@@ -302,6 +309,7 @@ class ArtifactRegistryService {
               sourceKind: reference.sourceKind,
               sourceKey: reference.sourceKey,
               registry: reference.registry,
+              versionRevision: reference.versionRevision,
               versionDigest: reference.versionDigest,
               hubArtifactId: reference.hubArtifactId,
               builtinBundleFamily: reference.builtinBundleFamily,
@@ -599,9 +607,23 @@ class ArtifactRegistryService {
         'Artifact manifest does not match its Server reference',
       );
     }
+    final manifestOs = config.os.trim().toLowerCase();
+    final manifestArch = config.cpuArch.trim().toLowerCase();
+    final manifestAbi = OpentoolfileConfigUtil.resolvedAbi(
+      manifestOs,
+      config.abi,
+    );
+    if (!OpentoolfileConfigUtil.isSupportedAbi(manifestOs, manifestAbi)) {
+      throw const ArtifactOperationException(
+        code: 'PLATFORM_NOT_SUPPORTED',
+        message: 'Artifact ABI is invalid for its operating system',
+        retryable: false,
+      );
+    }
     if (expected?.platform != null &&
-        (config.os.toLowerCase() != expected!.platform!.os ||
-            config.cpuArch.toLowerCase() != expected.platform!.arch)) {
+        (manifestOs != expected!.platform!.os ||
+            manifestArch != expected.platform!.arch ||
+            manifestAbi != expected.platform!.abi)) {
       throw const ArtifactOperationException(
         code: 'PLATFORM_NOT_SUPPORTED',
         message: 'Artifact platform does not match the requested platform',

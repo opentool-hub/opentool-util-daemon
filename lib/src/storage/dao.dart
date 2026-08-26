@@ -104,6 +104,8 @@ class ServerDao extends HiveObject {
   String state;
   @HiveField(17)
   DateTime createdAt;
+  @HiveField(18)
+  int? versionRevision;
 
   ServerDao({
     required this.id,
@@ -115,6 +117,7 @@ class ServerDao extends HiveObject {
     required this.sourceKind,
     required this.sourceKey,
     this.registry,
+    this.versionRevision,
     this.versionDigest,
     this.hubArtifactId,
     this.builtinBundleFamily,

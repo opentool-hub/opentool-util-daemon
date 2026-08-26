@@ -88,6 +88,7 @@ class HubPullService {
   final PlatformDetector platformDetector;
   final ArtifactDownloader downloader;
   final HubClientFactory _hubClientFactory;
+  final Map<String, _SourceLockEntry> _sourceLocks = {};
 
   HubPullService({
     required this.serverService,
@@ -108,18 +109,41 @@ class HubPullService {
   }) async {
     _ensureNotCancelled(cancellation);
     final platform = await platformDetector.detect();
-    onEvent(PullEvent('start', {'stage': 'resolving', 'ref': request.ref}));
-    final server = await _performInstall(
-      request,
-      platform,
-      onEvent,
-      cancellation,
-    );
-    _ensureNotCancelled(cancellation);
-    onEvent(
-      PullEvent('done', {'stage': 'ready', 'server': _serverJson(server)}),
-    );
-    return server;
+    return _withSourceLock(request, () async {
+      _ensureNotCancelled(cancellation);
+      onEvent(PullEvent('start', {'stage': 'resolving', 'ref': request.ref}));
+      final server = await _performInstall(
+        request,
+        platform,
+        onEvent,
+        cancellation,
+      );
+      _ensureNotCancelled(cancellation);
+      onEvent(
+        PullEvent('done', {'stage': 'ready', 'server': _serverJson(server)}),
+      );
+      return server;
+    });
+  }
+
+  int get debugSourceLockCount => _sourceLocks.length;
+
+  Future<T> _withSourceLock<T>(
+    HubPullRequest request,
+    Future<T> Function() action,
+  ) async {
+    final key =
+        '${request.registry}|${request.namespace}|${request.name}|${request.version}';
+    final entry = _sourceLocks.putIfAbsent(key, _SourceLockEntry.new);
+    entry.references++;
+    try {
+      return await entry.lock.protect(action);
+    } finally {
+      entry.references--;
+      if (entry.references == 0 && identical(_sourceLocks[key], entry)) {
+        _sourceLocks.remove(key);
+      }
+    }
   }
 
   Future<ServerModel> _performInstall(
@@ -146,7 +170,7 @@ class HubPullService {
         LogModule.server,
         'hub.resolve.result',
         detail:
-            'ref: ${request.ref}, versionDigest: ${resolved.versionDigest}, artifactId: ${resolved.artifact.id}, artifactDigest: ${resolved.artifact.digest}',
+            'ref: ${request.ref}, versionRevision: ${resolved.versionRevision}, versionDigest: ${resolved.versionDigest}, artifactId: ${resolved.artifact.id}, artifactDigest: ${resolved.artifact.digest}',
       );
 
       final existing = await serverService.findHubSource(
@@ -156,13 +180,27 @@ class HubPullService {
         version: request.version,
       );
       if (existing != null) {
-        if (existing.artifactDigest == resolved.artifact.digest)
+        if (existing.artifactDigest != resolved.artifact.digest ||
+            (existing.versionRevision != null &&
+                resolved.versionRevision < existing.versionRevision!) ||
+            (existing.versionRevision == resolved.versionRevision &&
+                existing.versionDigest != null &&
+                existing.versionDigest != resolved.versionDigest)) {
+          throw const ArtifactOperationException(
+            code: 'ARTIFACT_SOURCE_CONFLICT',
+            message:
+                'The requested published version conflicts with installed immutable metadata',
+            retryable: false,
+          );
+        }
+        if (existing.versionRevision == resolved.versionRevision &&
+            existing.versionDigest == resolved.versionDigest &&
+            existing.artifactId == resolved.artifact.id) {
           return existing;
-        throw const ArtifactOperationException(
-          code: 'ARTIFACT_SOURCE_CONFLICT',
-          message:
-              'The requested published version is already registered with a different digest',
-          retryable: false,
+        }
+        return serverService.refreshHubSourceMetadata(
+          existing.id,
+          _metadata(request, platform, resolved),
         );
       }
 
@@ -191,18 +229,7 @@ class HubPullService {
       _ensureNotCancelled(cancellation);
       final registered = await serverService.registerHubArtifact(
         downloadedPath,
-        HubArtifactMetadata(
-          registry: request.registry,
-          namespace: request.namespace,
-          name: request.name,
-          version: request.version,
-          versionDigest: resolved.versionDigest,
-          artifactId: resolved.artifact.id,
-          artifactDigest: resolved.artifact.digest,
-          artifactMediaType: resolved.artifact.mediaType,
-          artifactSize: resolved.artifact.size,
-          platform: platform,
-        ),
+        _metadata(request, platform, resolved),
         onImporting: () =>
             onEvent(const PullEvent('data', {'stage': 'registering'})),
       );
@@ -210,7 +237,7 @@ class HubPullService {
         LogModule.server,
         'hub.pull.result',
         detail:
-            'serverId: ${registered.id}, versionDigest: ${registered.versionDigest}, artifactId: ${registered.artifactId}, artifactDigest: ${registered.artifactDigest}',
+            'serverId: ${registered.id}, versionRevision: ${registered.versionRevision}, versionDigest: ${registered.versionDigest}, artifactId: ${registered.artifactId}, artifactDigest: ${registered.artifactDigest}',
       );
       return registered;
     } on PullCancelledException {
@@ -229,6 +256,24 @@ class HubPullService {
     }
   }
 
+  HubArtifactMetadata _metadata(
+    HubPullRequest request,
+    ServerPlatform platform,
+    ResolveResult resolved,
+  ) => HubArtifactMetadata(
+    registry: request.registry,
+    namespace: request.namespace,
+    name: request.name,
+    version: request.version,
+    versionRevision: resolved.versionRevision,
+    versionDigest: resolved.versionDigest,
+    artifactId: resolved.artifact.id,
+    artifactDigest: resolved.artifact.digest,
+    artifactMediaType: resolved.artifact.mediaType,
+    artifactSize: resolved.artifact.size,
+    platform: platform,
+  );
+
   void _validateResolve(
     HubPullRequest request,
     ServerPlatform platform,
@@ -238,6 +283,7 @@ class HubPullService {
     if (resolved.tool.namespace != request.namespace ||
         resolved.tool.name != request.name ||
         resolved.version != request.version ||
+        resolved.versionRevision < 1 ||
         !digestPattern.hasMatch(resolved.versionDigest) ||
         resolved.artifact.os != platform.os ||
         resolved.artifact.arch != platform.arch ||
@@ -306,6 +352,8 @@ class HubPullService {
       'name': server.name,
       'version': server.version,
       if (server.versionDigest != null) 'versionDigest': server.versionDigest,
+      if (server.versionRevision != null)
+        'versionRevision': server.versionRevision,
       if (server.artifactId != null) 'artifactId': server.artifactId,
       if (server.artifactDigest != null)
         'artifactDigest': server.artifactDigest,
@@ -322,4 +370,25 @@ class HubPullService {
     if (server.createdAt != null)
       'createdAt': server.createdAt!.toIso8601String(),
   };
+}
+
+class _AsyncLock {
+  Future<void> _tail = Future<void>.value();
+
+  Future<T> protect<T>(Future<T> Function() action) async {
+    final previous = _tail;
+    final done = Completer<void>();
+    _tail = done.future;
+    await previous.catchError((_) {});
+    try {
+      return await action();
+    } finally {
+      done.complete();
+    }
+  }
+}
+
+class _SourceLockEntry {
+  final _AsyncLock lock = _AsyncLock();
+  int references = 0;
 }

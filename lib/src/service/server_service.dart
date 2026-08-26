@@ -20,6 +20,7 @@ class ServerService {
   final CacheToolStorage? _tools;
   final Future<void> Function(List<ServerModel>)? _onServersChanged;
   final ArtifactRegistryService _registry;
+  final PlatformDetector _platformDetector;
 
   ServerService(
     Storage<ServerDao> serverStorage, {
@@ -27,10 +28,12 @@ class ServerService {
     CacheToolStorage? toolStorage,
     Future<void> Function(List<ServerModel>)? onServersChanged,
     required ArtifactRegistryService artifactRegistry,
+    PlatformDetector? platformDetector,
   }) : _servers = cacheServerStorage ?? CacheServerStorage(serverStorage),
        _tools = toolStorage,
        _onServersChanged = onServersChanged,
-       _registry = artifactRegistry;
+       _registry = artifactRegistry,
+       _platformDetector = platformDetector ?? PlatformDetector();
 
   Future<List<ServerModel>> list() async {
     logger.log(LogModule.server, 'list.input', level: Level.FINE);
@@ -109,6 +112,7 @@ class ServerService {
         namespace: metadata.namespace,
         name: metadata.name,
         version: metadata.version,
+        versionRevision: metadata.versionRevision,
         versionDigest: metadata.versionDigest,
         hubArtifactId: metadata.artifactId,
       ),
@@ -121,6 +125,32 @@ class ServerService {
         platform: metadata.platform,
       ),
     );
+    return get(server.id);
+  }
+
+  Future<ServerModel> refreshHubSourceMetadata(
+    String serverId,
+    HubArtifactMetadata metadata,
+  ) async {
+    final server = await _servers.get(serverId);
+    if (server == null) throw ServerNotFoundException(serverId);
+    if (server.sourceKind != 'hub' ||
+        server.registry != metadata.registry ||
+        server.namespace != metadata.namespace ||
+        server.name != metadata.name ||
+        server.version != metadata.version ||
+        server.artifactDigest != metadata.artifactDigest) {
+      throw const ArtifactOperationException(
+        code: 'ARTIFACT_SOURCE_CONFLICT',
+        message: 'The installed Hub source does not match resolved metadata',
+        retryable: false,
+      );
+    }
+    server.versionRevision = metadata.versionRevision;
+    server.versionDigest = metadata.versionDigest;
+    server.hubArtifactId = metadata.artifactId;
+    await _servers.update(server);
+    await _notifyServersChanged();
     return get(server.id);
   }
 
@@ -142,11 +172,16 @@ class ServerService {
     if (await FileSystemEntity.isDirectory(opentoolfilePath)) {
       opentoolfilePath = p.join(opentoolfilePath, OPENTOOL_FILE_NAME);
     }
-    final rawConfig = await OpentoolfileConfigUtil.fromFile(
-      name,
-      opentoolfilePath,
-      tag: tag ?? NULL_TAG,
-    );
+    final platform = await _platformDetector.detect();
+    final rawConfig =
+        await OpentoolfileConfigUtil.fromFile(
+            name,
+            opentoolfilePath,
+            tag: tag ?? NULL_TAG,
+          )
+          ..os = platform.os
+          ..cpuArch = platform.arch
+          ..abi = platform.abi;
     final config = await OpentoolfileConfigUtil.resolve(rawConfig);
     final sourceDirectory = DirectoryUtil.getParentDir(opentoolfilePath);
     for (final command in config.build.runs) {
@@ -186,7 +221,7 @@ class ServerService {
         expectedMetadata: ArtifactExpectedMetadata(
           name: name,
           version: version,
-          platform: await PlatformDetector().detect(),
+          platform: platform,
         ),
       );
     } finally {
@@ -201,9 +236,11 @@ class ServerService {
     final server = await get(serverId);
     final sourcePath = server.artifactFilePath;
     if (sourcePath == null) throw ServerNotFoundException(serverId);
+    final platform = server.platform ?? await _platformDetector.detect();
     final targetPath = p.join(
       exportFolder,
-      '${server.namespace}-${server.name}-${server.version}-${SystemUtil.getOS()}-${SystemUtil.getCpuArch()}.ots',
+      '${server.namespace}-${server.name}-${server.version}-'
+      '${platform.os}-${platform.arch}-${platform.abi}.ots',
     );
     await DirectoryUtil.copyAndRenameFile(sourcePath, targetPath);
   }
@@ -211,13 +248,21 @@ class ServerService {
   Future<ServerModel> import(String otsFilePath) async {
     final inspection = await ZipUtil.inspect(otsFilePath);
     final config = OpentoolfileConfig.fromJson(inspection.manifest);
-    final platform = await PlatformDetector().detect();
-    if (config.os != platform.os || config.cpuArch != platform.arch) {
+    final platform = await _platformDetector.detect();
+    final artifactAbi = OpentoolfileConfigUtil.resolvedAbi(
+      config.os,
+      config.abi,
+    );
+    if (config.os.toLowerCase() != platform.os ||
+        config.cpuArch.toLowerCase() != platform.arch ||
+        artifactAbi != platform.abi) {
       throw SystemMismatchException(
         platform.os,
         platform.arch,
         config.os,
         config.cpuArch,
+        nativeAbi: platform.abi,
+        remoteAbi: artifactAbi,
       );
     }
     final version = config.tag ?? NULL_TAG;

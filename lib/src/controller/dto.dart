@@ -147,6 +147,7 @@ class ServerSourceDto {
   String namespace;
   String name;
   String version;
+  int? versionRevision;
   String? versionDigest;
   String? artifactId;
   String? artifactDigest;
@@ -158,6 +159,7 @@ class ServerSourceDto {
     required this.namespace,
     required this.name,
     required this.version,
+    this.versionRevision,
     this.versionDigest,
     this.artifactId,
     this.artifactDigest,
@@ -181,6 +183,7 @@ class ServerSourceDto {
     namespace: model.namespace,
     name: model.name,
     version: model.version,
+    versionRevision: model.versionRevision,
     versionDigest: model.versionDigest,
     artifactId: model.artifactId,
     artifactDigest: model.artifactDigest,

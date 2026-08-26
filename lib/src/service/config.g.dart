@@ -12,6 +12,7 @@ OpentoolfileConfig _$OpentoolfileConfigFromJson(Map<String, dynamic> json) =>
       tag: json['tag'] as String?,
       os: json['os'] as String,
       cpuArch: json['cpuArch'] as String,
+      abi: json['abi'] as String?,
       build: OpenToolBuild.fromJson(json['build'] as Map<String, dynamic>),
       run: OpenToolRun.fromJson(json['run'] as Map<String, dynamic>),
     );
@@ -28,6 +29,7 @@ Map<String, dynamic> _$OpentoolfileConfigToJson(OpentoolfileConfig instance) {
   writeNotNull('tag', instance.tag);
   val['os'] = instance.os;
   val['cpuArch'] = instance.cpuArch;
+  writeNotNull('abi', instance.abi);
   val['build'] = instance.build.toJson();
   val['run'] = instance.run.toJson();
   return val;

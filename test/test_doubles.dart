@@ -79,6 +79,18 @@ class FakeServerService implements ServerService {
   }) async => throw UnimplementedError();
 
   @override
+  Future<ServerModel> refreshHubSourceMetadata(
+    String serverId,
+    HubArtifactMetadata metadata,
+  ) async {
+    final server = await get(serverId);
+    server.versionRevision = metadata.versionRevision;
+    server.versionDigest = metadata.versionDigest;
+    server.artifactId = metadata.artifactId;
+    return server;
+  }
+
+  @override
   Future<void> reconcileInstallations() async {}
 
   @override

@@ -56,10 +56,18 @@ class SystemMismatchException implements Exception {
     String nativeOs,
     String nativeCpuArch,
     String remoteOs,
-    String remoteCpuArch,
-  ) {
+    String remoteCpuArch, {
+    String? nativeAbi,
+    String? remoteAbi,
+  }) {
+    final nativePlatform = nativeAbi == null
+        ? '$nativeOs-$nativeCpuArch'
+        : '$nativeOs-$nativeCpuArch-$nativeAbi';
+    final remotePlatform = remoteAbi == null
+        ? '$remoteOs-$remoteCpuArch'
+        : '$remoteOs-$remoteCpuArch-$remoteAbi';
     this.message =
-        'System mismatch - native: $nativeOs-$nativeCpuArch, remote: $remoteOs-$remoteCpuArch';
+        'System mismatch - native: $nativePlatform, remote: $remotePlatform';
   }
 
   @override

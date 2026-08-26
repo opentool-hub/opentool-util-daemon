@@ -10,6 +10,7 @@ ResolveResult _$ResolveResultFromJson(Map<String, dynamic> json) =>
     ResolveResult(
       tool: ResolvedTool.fromJson(json['tool'] as Map<String, dynamic>),
       version: json['version'] as String,
+      versionRevision: (json['versionRevision'] as num?)?.toInt() ?? 1,
       versionDigest: json['versionDigest'] as String,
       artifact: ResolvedArtifact.fromJson(
         json['artifact'] as Map<String, dynamic>,
@@ -20,6 +21,7 @@ Map<String, dynamic> _$ResolveResultToJson(ResolveResult instance) =>
     <String, dynamic>{
       'tool': instance.tool.toJson(),
       'version': instance.version,
+      'versionRevision': instance.versionRevision,
       'versionDigest': instance.versionDigest,
       'artifact': instance.artifact.toJson(),
     };

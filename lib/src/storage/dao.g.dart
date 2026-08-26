@@ -133,6 +133,7 @@ class ServerDaoAdapter extends TypeAdapter<ServerDao> {
       sourceKind: fields[6] as String,
       sourceKey: fields[7] as String,
       registry: fields[8] as String?,
+      versionRevision: fields[18] as int?,
       versionDigest: fields[9] as String?,
       hubArtifactId: fields[10] as String?,
       builtinBundleFamily: fields[11] as String?,
@@ -148,7 +149,7 @@ class ServerDaoAdapter extends TypeAdapter<ServerDao> {
   @override
   void write(BinaryWriter writer, ServerDao obj) {
     writer
-      ..writeByte(18)
+      ..writeByte(19)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -184,7 +185,9 @@ class ServerDaoAdapter extends TypeAdapter<ServerDao> {
       ..writeByte(16)
       ..write(obj.state)
       ..writeByte(17)
-      ..write(obj.createdAt);
+      ..write(obj.createdAt)
+      ..writeByte(18)
+      ..write(obj.versionRevision);
   }
 
   @override

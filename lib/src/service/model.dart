@@ -52,6 +52,7 @@ class HubArtifactMetadata {
   final String namespace;
   final String name;
   final String version;
+  final int versionRevision;
   final String versionDigest;
   final String artifactId;
   final String artifactDigest;
@@ -64,6 +65,7 @@ class HubArtifactMetadata {
     required this.namespace,
     required this.name,
     required this.version,
+    required this.versionRevision,
     required this.versionDigest,
     required this.artifactId,
     required this.artifactDigest,
@@ -113,6 +115,7 @@ class VersionModel {
     this.capabilities = const [
       'artifactRegistryV2',
       'builtinReconcileV1',
+      'hubVersionRevisionV1',
       'pullSseV1',
       'startToolTerminalV1',
       'toolMaterializationV1',
@@ -130,6 +133,7 @@ class ServerModel {
   String version;
   String internalId;
   String? artifactId;
+  int? versionRevision;
   String? versionDigest;
   String? artifactDigest;
   String? artifactMediaType;
@@ -159,6 +163,7 @@ class ServerModel {
     required this.version,
     required this.internalId,
     this.artifactId,
+    this.versionRevision,
     this.versionDigest,
     this.artifactDigest,
     this.artifactMediaType,
@@ -194,6 +199,7 @@ class ServerModel {
       version: dao.version,
       internalId: dao.artifactDigest,
       artifactId: dao.hubArtifactId,
+      versionRevision: dao.versionRevision,
       versionDigest: dao.versionDigest,
       artifactDigest: dao.artifactDigest,
       artifactMediaType: artifact?.mediaType,
@@ -233,6 +239,7 @@ class ServerModel {
       sourceKind: sourceKind,
       sourceKey: sourceKey,
       registry: registry.isEmpty ? null : registry,
+      versionRevision: versionRevision,
       versionDigest: versionDigest,
       hubArtifactId: artifactId,
       protected: protected,

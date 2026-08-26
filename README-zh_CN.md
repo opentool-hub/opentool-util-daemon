@@ -98,7 +98,7 @@ daemon 不承担 Hub 登录和发布，只负责公开制品的解析、下载�
   "name": "OpenTool Daemon",
   "version": "0.5.1",
   "apiVersion": 2,
-  "capabilities": ["artifactRegistryV2", "builtinReconcileV1", "pullSseV1", "startToolTerminalV1", "toolMaterializationV1"]
+  "capabilities": ["artifactRegistryV2", "builtinReconcileV1", "hubVersionRevisionV1", "pullSseV1", "startToolTerminalV1", "toolMaterializationV1"]
 }
 ```
 
@@ -155,11 +155,12 @@ x-opentool-sudo-token: <temp-token>
 ]
 ```
 
-Server 版本不可变；需要不同版本时，应重新注册或拉取一个新的 Server 引用。
+本地已安装的平台制品不可变。同一 SemVer 的平台制品未变化时，重复 pull 不会再次下载，
+但会将本地保存的 Hub `versionRevision` 和 `versionDigest` 推进到最新修订。
 
 ### POST /servers/pull
 
-请求体必须指定 Hub 上不可变的精确版本，平台由 daemon 自动检测：
+请求体必须指定 Hub 上的精确 SemVer，并解析其当前 append-only revision；平台由 daemon 自动检测：
 
 ```json
 {
@@ -230,6 +231,10 @@ SSE `event:DATA` 中包含正在执行的脚本与输出：
 }
 ```
 `event:DONE` 表示 `.ots` 已提交到内容寻址 Artifact Registry 并关闭连接。
+生成的根目录 `Opentoolfile.json` 会写入 `os`、`cpuArch` 和 `abi`。Daemon 在
+Linux 上自动检测 `glibc` 或 `musl`，在 macOS 和 Windows 上写入 `native`；仅当
+Linux ABI 无法自动检测时才需要设置 `OPENTOOL_LINUX_ABI=glibc|musl`。旧版 Linux
+manifest 如果没有 `abi`，固定按 `glibc` 解释，不跟随当前主机 ABI。
 
 ### GET /servers/{serverId}/export
 请求体需提供目标目录：
@@ -238,7 +243,7 @@ SSE `event:DATA` 中包含正在执行的脚本与输出：
   "path": "/tmp/output"
 }
 ```
-守护进程会输出文件 `<namespace>-<name>-<version>-<os>-<cpu>.ots` 到该目录。
+守护进程会输出文件 `<namespace>-<name>-<version>-<os>-<cpu>-<abi>.ots` 到该目录。
 
 ### POST /servers/import
 ```json

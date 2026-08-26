@@ -69,6 +69,7 @@ class OpentoolfileConfigUtil {
       tag: rawConfig.tag,
       os: rawConfig.os,
       cpuArch: rawConfig.cpuArch,
+      abi: rawConfig.abi,
       build: OpenToolBuild(args: resolvedArgs, runs: resolvedRuns),
       run: OpenToolRun(
         envs: resolvedEnvs,
@@ -92,6 +93,20 @@ class OpentoolfileConfigUtil {
       return m[0]!;
     });
   }
+
+  static String resolvedAbi(String os, String? abi) {
+    final declared = abi?.trim().toLowerCase();
+    if (declared != null && declared.isNotEmpty) return declared;
+    return os.trim().toLowerCase() == 'linux' ? 'glibc' : 'native';
+  }
+
+  static bool isSupportedAbi(String os, String abi) {
+    final normalizedOs = os.trim().toLowerCase();
+    final normalizedAbi = abi.trim().toLowerCase();
+    return normalizedOs == 'linux'
+        ? normalizedAbi == 'glibc' || normalizedAbi == 'musl'
+        : normalizedAbi == 'native';
+  }
 }
 
 @JsonSerializable(includeIfNull: false, explicitToJson: true)
@@ -100,6 +115,7 @@ class OpentoolfileConfig {
   String? tag;
   String os;
   String cpuArch;
+  String? abi;
   OpenToolBuild build;
   OpenToolRun run;
 
@@ -108,6 +124,7 @@ class OpentoolfileConfig {
     this.tag,
     required this.os,
     required this.cpuArch,
+    this.abi,
     required this.build,
     required this.run,
   });
