@@ -36,5 +36,28 @@ void main() {
       expect(result, isNot(equals(busyPort)));
       expect(result, greaterThan(busyPort));
     });
+
+    test('wildcard allocation rejects a loopback listener', () async {
+      final listener = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(listener.close);
+
+      expect(
+        await isPortAvailable(InternetAddress.anyIPv4.address, listener.port),
+        isFalse,
+      );
+    });
+
+    test('loopback allocation rejects a wildcard listener', () async {
+      final listener = await ServerSocket.bind(InternetAddress.anyIPv4, 0);
+      addTearDown(listener.close);
+
+      expect(
+        await isPortAvailable(
+          InternetAddress.loopbackIPv4.address,
+          listener.port,
+        ),
+        isFalse,
+      );
+    });
   });
 }

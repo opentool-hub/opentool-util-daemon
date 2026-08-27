@@ -601,6 +601,45 @@ void main() {
         expect((await storage.get(dao.id))!.status, ToolStatusType.NOT_RUNNING);
       });
 
+      test(
+        'authorization failure reports endpoint conflict immediately',
+        () async {
+          final dao = _toolDao(
+            'tool-endpoint-conflict',
+            server,
+            ToolStatusType.NOT_RUNNING,
+          );
+          storage.seed([dao]);
+          await _writeToolWorkspace(dao.id, server);
+          final client = _UnauthorizedHealthClient();
+          final conflictService = ToolService(
+            storage,
+            clientFactory: (_) => client,
+            portAllocator: (_, startPort) async => startPort,
+            processLauncher: (_, _, _, _, _, _) => Completer<int>().future,
+            readyCheckInterval: const Duration(seconds: 1),
+            readyCheckTimeout: const Duration(seconds: 30),
+          );
+
+          await expectLater(
+            conflictService.startTool(ToolModel.fromDao(dao)),
+            throwsA(
+              isA<ToolEndpointConflictException>()
+                  .having((error) => error.port, 'port', 9010)
+                  .having((error) => error.host, 'host', HostType.LOCALHOST),
+            ),
+          );
+
+          // One preflight probe plus one post-launch readiness probe; the 401 is
+          // never retried on the readiness timer.
+          expect(client.versionCalls, 2);
+          expect(
+            (await storage.get(dao.id))!.status,
+            ToolStatusType.NOT_RUNNING,
+          );
+        },
+      );
+
       test('start persists starting before running', () async {
         final recordingStorage = _RecordingToolStorage();
         final dao = _toolDao(
@@ -791,6 +830,48 @@ void main() {
         expect(starts, 2);
         expect((await storage.get(dao.id))!.status, ToolStatusType.RUNNING);
       });
+
+      test(
+        'delete cancels an in-flight startup without waiting for timeout',
+        () async {
+          final dao = _toolDao(
+            'tool-delete-during-start',
+            server,
+            ToolStatusType.NOT_RUNNING,
+          );
+          storage.seed([dao]);
+          await _writeToolWorkspace(dao.id, server);
+          final processLaunched = Completer<void>();
+          final lifecycleService = ToolService(
+            storage,
+            clientFactory: (_) => _MutableHealthClient(healthy: false),
+            portAllocator: (_, startPort) async => startPort,
+            processLauncher: (_, _, _, _, _, _) {
+              processLaunched.complete();
+              return Completer<int>().future;
+            },
+            readyCheckInterval: const Duration(milliseconds: 10),
+            readyCheckTimeout: const Duration(seconds: 30),
+          );
+
+          final startFuture = lifecycleService.startTool(
+            ToolModel.fromDao(dao),
+          );
+          final startExpectation = expectLater(startFuture, throwsA(anything));
+          await processLaunched.future;
+
+          await lifecycleService
+              .delete(dao.id)
+              .timeout(const Duration(seconds: 1));
+          await startExpectation;
+
+          expect(await storage.get(dao.id), isNull);
+          expect(
+            await Directory('$OPENTOOL_PATH/$TOOL_FOLDER/${dao.id}').exists(),
+            isFalse,
+          );
+        },
+      );
 
       test('old process exit cannot stop a newer generation', () async {
         final dao = _toolDao(
@@ -1017,6 +1098,18 @@ class _MutableHealthClient extends OpenToolClient {
   Future<StatusInfo?> stop() async {
     healthy = healthyAfterStop;
     return null;
+  }
+}
+
+class _UnauthorizedHealthClient extends OpenToolClient {
+  int versionCalls = 0;
+
+  _UnauthorizedHealthClient() : super(toolHost: '127.0.0.1', toolPort: 9010);
+
+  @override
+  Future<Version> version() async {
+    versionCalls++;
+    throw OpenToolServerUnauthorizedException();
   }
 }
 

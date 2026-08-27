@@ -447,16 +447,16 @@ class ToolService {
 
     late Future<void> flight;
     flight =
-        _withLifecycleLock(
-          tool.id,
-          () => _startToolLocked(
+        _withLifecycleLock(tool.id, () {
+          _ensureCurrentLifecycleRequestEpoch(tool.id, requestEpoch);
+          return _startToolLocked(
             tool.id,
             readyReason,
             onStdout: onStdout,
             onStderr: onStderr,
             printStd: printStd,
-          ),
-        ).whenComplete(() {
+          );
+        }).whenComplete(() {
           if (identical(_startFlights[tool.id]?.future, flight)) {
             _startFlights.remove(tool.id);
           }
@@ -670,7 +670,7 @@ class ToolService {
   }
 
   Future<void> delete(String toolId) {
-    _advanceLifecycleRequestEpoch(toolId);
+    _cancelStartRequests(toolId);
     return _withLifecycleLock(toolId, () => _deleteLocked(toolId));
   }
 
@@ -1000,6 +1000,21 @@ class ToolService {
         await client.version();
         _ensureCurrentGeneration(toolId, generation);
         return;
+      } on OpenToolServerUnauthorizedException {
+        final listeningPids = await findListeningProcessIds(toolDao.port);
+        final conflict = ToolEndpointConflictException(
+          toolId: toolId,
+          host: toolDao.host,
+          port: toolDao.port,
+          listeningPids: listeningPids,
+        );
+        logger.log(
+          LogModule.tool,
+          'readyCheck.endpointConflict',
+          detail: conflict.toString(),
+          level: Level.WARNING,
+        );
+        throw conflict;
       } catch (_) {
         _ensureCurrentGeneration(toolId, generation);
         if (stopwatch.elapsed >= _readyCheckTimeout) rethrow;
@@ -1020,6 +1035,20 @@ class ToolService {
   void _advanceLifecycleRequestEpoch(String toolId) {
     _lifecycleRequestEpochs[toolId] =
         (_lifecycleRequestEpochs[toolId] ?? 0) + 1;
+  }
+
+  void _cancelStartRequests(String toolId) {
+    _advanceLifecycleRequestEpoch(toolId);
+    final generation = _lifecycleGenerations[toolId];
+    if (generation != null) {
+      _lifecycleGenerations[toolId] = generation + 1;
+    }
+  }
+
+  void _ensureCurrentLifecycleRequestEpoch(String toolId, int epoch) {
+    if ((_lifecycleRequestEpochs[toolId] ?? 0) != epoch) {
+      throw _LifecycleRequestSupersededException(toolId, epoch);
+    }
   }
 
   bool _isCurrentGeneration(String toolId, int generation) =>
@@ -1102,4 +1131,15 @@ class _LifecycleSupersededException implements Exception {
   @override
   String toString() =>
       'Tool lifecycle operation superseded: $toolId generation $generation';
+}
+
+class _LifecycleRequestSupersededException implements Exception {
+  final String toolId;
+  final int epoch;
+
+  const _LifecycleRequestSupersededException(this.toolId, this.epoch);
+
+  @override
+  String toString() =>
+      'Tool lifecycle request superseded: $toolId request epoch $epoch';
 }

@@ -36,6 +36,29 @@ class ToolRestartConflictException implements Exception {
   String toString() => 'ToolRestartConflictException: $toolId - $message';
 }
 
+class ToolEndpointConflictException implements Exception {
+  final String toolId;
+  final String host;
+  final int port;
+  final List<int> listeningPids;
+
+  const ToolEndpointConflictException({
+    required this.toolId,
+    required this.host,
+    required this.port,
+    this.listeningPids = const [],
+  });
+
+  @override
+  String toString() {
+    final pidDetail = listeningPids.isEmpty
+        ? ''
+        : ', listeningPids: ${listeningPids.join(',')}';
+    return 'ToolEndpointConflictException: $toolId - $host:$port rejected '
+        'the Tool credential (HTTP 401)$pidDetail';
+  }
+}
+
 class OpentoolfileMissingArgumentException implements Exception {
   late String message;
 
