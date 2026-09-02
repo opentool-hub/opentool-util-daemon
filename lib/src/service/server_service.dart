@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:logging/logging.dart';
@@ -163,70 +164,196 @@ class ServerService {
     void Function(String command, String output) onRun,
     void Function() onDone,
   ) async {
+    final buildStopwatch = Stopwatch()..start();
+    final buildId = uniqueId(shorter: false);
+    final version = tag ?? NULL_TAG;
+    var phase = 'resolveOpentoolfile';
+    int? activeCommand;
     logger.log(
       LogModule.server,
       'build.input',
-      detail: 'name: $name, tag: ${tag ?? NULL_TAG}',
+      detail: _buildLogDetail({
+        'buildId': buildId,
+        'name': name,
+        'tag': version,
+        'opentoolfile': p.absolute(path),
+      }),
     );
     var opentoolfilePath = path;
-    if (await FileSystemEntity.isDirectory(opentoolfilePath)) {
-      opentoolfilePath = p.join(opentoolfilePath, OPENTOOL_FILE_NAME);
-    }
-    final platform = await _platformDetector.detect();
-    final rawConfig =
-        await OpentoolfileConfigUtil.fromFile(
-            name,
-            opentoolfilePath,
-            tag: tag ?? NULL_TAG,
-          )
-          ..os = platform.os
-          ..cpuArch = platform.arch
-          ..abi = platform.abi;
-    final config = await OpentoolfileConfigUtil.resolve(rawConfig);
-    final sourceDirectory = DirectoryUtil.getParentDir(opentoolfilePath);
-    for (final command in config.build.runs) {
-      onRun(command, await CommandUtil.runCommand(sourceDirectory, command));
-    }
-    onDone();
-
-    final operationId = uniqueId();
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'OpentoolServer_$operationId',
-    );
-    final output = p.join(tempDirectory.parent.path, '$operationId.ots');
     try {
-      final targetWorkdir = Directory(
-        p.join(tempDirectory.path, config.run.workdir),
+      if (await FileSystemEntity.isDirectory(opentoolfilePath)) {
+        opentoolfilePath = p.join(opentoolfilePath, OPENTOOL_FILE_NAME);
+      }
+      phase = 'detectPlatform';
+      final platform = await _platformDetector.detect();
+      phase = 'parseOpentoolfile';
+      final rawConfig =
+          await OpentoolfileConfigUtil.fromFile(
+              name,
+              opentoolfilePath,
+              tag: version,
+            )
+            ..os = platform.os
+            ..cpuArch = platform.arch
+            ..abi = platform.abi;
+      final config = await OpentoolfileConfigUtil.resolve(rawConfig);
+      final sourceDirectory = DirectoryUtil.getParentDir(opentoolfilePath);
+      logger.log(
+        LogModule.server,
+        'build.config',
+        detail: _buildLogDetail({
+          'buildId': buildId,
+          'name': name,
+          'tag': version,
+          'opentoolfile': p.absolute(opentoolfilePath),
+          'sourceDirectory': p.absolute(sourceDirectory),
+          'platform': '${platform.os}-${platform.arch}-${platform.abi}',
+          'commandCount': config.build.runs.length,
+          'workdir': config.run.workdir,
+        }),
       );
-      await DirectoryUtil.copyDirectory(
-        Directory(p.join(sourceDirectory, config.run.workdir)),
-        targetWorkdir,
+
+      phase = 'runBuildCommands';
+      for (var index = 0; index < config.build.runs.length; index++) {
+        activeCommand = index + 1;
+        final command = config.build.runs[index];
+        final commandStopwatch = Stopwatch()..start();
+        logger.log(
+          LogModule.server,
+          'build.command.start',
+          detail: _buildLogDetail({
+            'buildId': buildId,
+            'name': name,
+            'tag': version,
+            'index': activeCommand,
+            'total': config.build.runs.length,
+            'cwd': p.absolute(sourceDirectory),
+            'command': command,
+          }),
+        );
+        try {
+          final output = await CommandUtil.runCommand(sourceDirectory, command);
+          onRun(command, output);
+          logger.log(
+            LogModule.server,
+            'build.command.done',
+            detail: _buildLogDetail({
+              'buildId': buildId,
+              'name': name,
+              'tag': version,
+              'index': activeCommand,
+              'total': config.build.runs.length,
+              'durationMs': commandStopwatch.elapsedMilliseconds,
+              'stdoutBytes': utf8.encode(output).length,
+            }),
+          );
+        } on CommandException catch (error) {
+          logger.log(
+            LogModule.server,
+            'build.command.error',
+            detail: _buildLogDetail({
+              'buildId': buildId,
+              'name': name,
+              'tag': version,
+              'index': activeCommand,
+              'total': config.build.runs.length,
+              'durationMs': commandStopwatch.elapsedMilliseconds,
+              'exitCode': error.exitCode,
+              'command': error.command,
+              'stdout': error.stdout,
+              'stderr': error.stderr,
+            }),
+            level: Level.WARNING,
+          );
+          rethrow;
+        }
+      }
+      activeCommand = null;
+
+      phase = 'packageArtifact';
+      final operationId = uniqueId();
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'OpentoolServer_$operationId',
       );
-      await JsonFileUtil.saveToFile(
-        rawConfig.toJson(),
-        tempDirectory.path,
-        OPENTOOL_FILE_JSON_NAME,
+      final output = p.join(tempDirectory.parent.path, '$operationId.ots');
+      logger.log(
+        LogModule.server,
+        'build.package.start',
+        detail: _buildLogDetail({
+          'buildId': buildId,
+          'name': name,
+          'tag': version,
+          'workdir': config.run.workdir,
+        }),
       );
-      await ZipUtil.zipDirectory(tempDirectory.path, output);
-      final version = tag ?? NULL_TAG;
-      await _registry.registerArtifact(
-        output,
-        ServerReferenceInput.local(
-          kind: 'build',
-          namespace: LOCAL_NAMESPACE,
-          name: name,
-          version: version,
-        ),
-        const RegistrationPolicy(),
-        expectedMetadata: ArtifactExpectedMetadata(
-          name: name,
-          version: version,
-          platform: platform,
-        ),
+      late ServerDao registered;
+      try {
+        final targetWorkdir = Directory(
+          p.join(tempDirectory.path, config.run.workdir),
+        );
+        await DirectoryUtil.copyDirectory(
+          Directory(p.join(sourceDirectory, config.run.workdir)),
+          targetWorkdir,
+        );
+        await JsonFileUtil.saveToFile(
+          rawConfig.toJson(),
+          tempDirectory.path,
+          OPENTOOL_FILE_JSON_NAME,
+        );
+        await ZipUtil.zipDirectory(tempDirectory.path, output);
+        phase = 'registerArtifact';
+        registered = await _registry.registerArtifact(
+          output,
+          ServerReferenceInput.local(
+            kind: 'build',
+            namespace: LOCAL_NAMESPACE,
+            name: name,
+            version: version,
+          ),
+          const RegistrationPolicy(),
+          expectedMetadata: ArtifactExpectedMetadata(
+            name: name,
+            version: version,
+            platform: platform,
+          ),
+        );
+      } finally {
+        phase = 'cleanupBuildArtifacts';
+        await DirectoryUtil.deleteFile(output);
+        await DirectoryUtil.deleteDirectory(tempDirectory.path);
+      }
+      phase = 'complete';
+      logger.log(
+        LogModule.server,
+        'build.result',
+        detail: _buildLogDetail({
+          'buildId': buildId,
+          'name': name,
+          'tag': version,
+          'serverId': registered.id,
+          'artifactDigest': registered.artifactDigest,
+          'platform': '${platform.os}-${platform.arch}-${platform.abi}',
+          'durationMs': buildStopwatch.elapsedMilliseconds,
+        }),
       );
-    } finally {
-      await DirectoryUtil.deleteFile(output);
-      await DirectoryUtil.deleteDirectory(tempDirectory.path);
+      onDone();
+    } catch (error) {
+      logger.log(
+        LogModule.server,
+        'build.error',
+        detail: _buildLogDetail({
+          'buildId': buildId,
+          'name': name,
+          'tag': version,
+          'phase': phase,
+          if (activeCommand != null) 'commandIndex': activeCommand,
+          'durationMs': buildStopwatch.elapsedMilliseconds,
+          'errorType': error.runtimeType.toString(),
+          'error': error.toString(),
+        }),
+        level: Level.WARNING,
+      );
+      rethrow;
     }
   }
 
@@ -296,4 +423,24 @@ class ServerService {
     final callback = _onServersChanged;
     if (callback != null) await callback(await list());
   }
+}
+
+const _maxBuildLogValueChars = 8192;
+
+String _buildLogDetail(Map<String, Object?> values) {
+  return jsonEncode(
+    values.map(
+      (key, value) => MapEntry(
+        key,
+        value is String ? _truncateBuildLogValue(value) : value,
+      ),
+    ),
+  );
+}
+
+String _truncateBuildLogValue(String value) {
+  if (value.length <= _maxBuildLogValueChars) return value;
+  final omitted = value.length - _maxBuildLogValueChars;
+  return '${value.substring(0, _maxBuildLogValueChars)}'
+      '...[truncated $omitted chars]';
 }

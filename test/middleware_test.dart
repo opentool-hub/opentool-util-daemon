@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:opentool_daemon/src/middleware.dart';
 import 'package:opentool_daemon/src/service/exception.dart';
+import 'package:opentool_daemon/src/utils/command_util.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -32,6 +33,37 @@ void main() {
             'this device (macos-arm64-native). Import an .ots file built for '
             'macos-arm64-native.',
         'retryable': false,
+      },
+    });
+  });
+
+  test('maps a failed build command to an actionable 422 error', () async {
+    final handler = exceptionHandler()((_) async {
+      throw CommandException(
+        'dart compile exe bin/main.dart',
+        'compile failed',
+        exitCode: 254,
+        stdout: 'compiler context',
+        stderr: 'No named parameter with the name cliTool',
+      );
+    });
+
+    final response = await handler(
+      Request('POST', Uri.parse('http://localhost/servers/build')),
+    );
+    final body = jsonDecode(await response.readAsString());
+
+    expect(response.statusCode, 422);
+    expect(body, {
+      'error': {
+        'code': 'BUILD_COMMAND_FAILED',
+        'message': 'Build command failed',
+        'retryable': false,
+        'details': {
+          'exitCode': 254,
+          'stderr': 'No named parameter with the name cliTool',
+          'stdout': 'compiler context',
+        },
       },
     });
   });

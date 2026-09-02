@@ -37,6 +37,33 @@ void main() {
       expect(error.retryable, isTrue);
     });
 
+    test('preserves build command diagnostics', () {
+      final error = DaemonApiException.fromResponse(
+        statusCode: 422,
+        body: const {
+          'error': {
+            'code': 'BUILD_COMMAND_FAILED',
+            'message': 'Build command failed',
+            'retryable': false,
+            'details': {
+              'exitCode': 1,
+              'stderr': 'AOT compilation failed',
+              'stdout': 'Resolving dependencies...',
+            },
+          },
+        },
+      );
+
+      expect(error.code, 'BUILD_COMMAND_FAILED');
+      expect(error.statusCode, 422);
+      expect(error.retryable, isFalse);
+      expect(error.details, {
+        'exitCode': 1,
+        'stderr': 'AOT compilation failed',
+        'stdout': 'Resolving dependencies...',
+      });
+    });
+
     test('maps transport failures without exposing DioException', () {
       final request = RequestOptions(path: '/version');
       final error = DaemonApiException.fromDio(

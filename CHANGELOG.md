@@ -1,3 +1,10 @@
+## Unreleased
+
+- Add correlated Server build lifecycle logs with command exit codes, stdout,
+  stderr, failure phases, and durations
+- Return failed Server build commands as `422 BUILD_COMMAND_FAILED` with
+  bounded diagnostics for CLI clients
+
 ## 0.5.1
 
 - Record the detected platform ABI in generated `.ots` manifests and exported

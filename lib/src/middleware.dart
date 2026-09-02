@@ -3,6 +3,7 @@ import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'constants.dart';
 import 'utils/logger.dart';
+import 'utils/command_util.dart';
 import 'service/exception.dart';
 
 Middleware exceptionHandler() {
@@ -11,7 +12,7 @@ Middleware exceptionHandler() {
       try {
         return await innerHandler(request);
       } catch (e, stack) {
-        final mapped = _mapError(e);
+        final mapped = _mapError(e, requestPath: request.url.path);
         logger.log(
           LogModule.http,
           'request.error',
@@ -26,6 +27,7 @@ Middleware exceptionHandler() {
               'code': mapped.code,
               'message': mapped.message,
               'retryable': mapped.retryable,
+              if (mapped.details != null) 'details': mapped.details,
             },
           }),
           headers: JSON_HEADERS,
@@ -51,7 +53,7 @@ Middleware logRequest() {
   };
 }
 
-_HttpError _mapError(Object error) {
+_HttpError _mapError(Object error, {required String requestPath}) {
   if (error is ArtifactOperationException) {
     final status = switch (error.code) {
       'INVALID_REQUEST' || 'INVALID_TOOL_REFERENCE' => 400,
@@ -77,6 +79,21 @@ _HttpError _mapError(Object error) {
   if (error is ToolNotFoundException) {
     return _HttpError(404, 'TOOL_NOT_FOUND', error.message, false);
   }
+  if (error is CommandException && requestPath.endsWith('servers/build')) {
+    return _HttpError(
+      422,
+      'BUILD_COMMAND_FAILED',
+      'Build command failed',
+      false,
+      details: {
+        if (error.exitCode != null) 'exitCode': error.exitCode,
+        if (error.stderr.trim().isNotEmpty)
+          'stderr': _truncateClientDiagnostic(error.stderr),
+        if (error.stdout.trim().isNotEmpty)
+          'stdout': _truncateClientDiagnostic(error.stdout),
+      },
+    );
+  }
   if (error is FormatException || error is ArgumentError) {
     return const _HttpError(400, 'INVALID_REQUEST', 'Invalid request', false);
   }
@@ -93,5 +110,24 @@ class _HttpError {
   final String code;
   final String message;
   final bool retryable;
-  const _HttpError(this.status, this.code, this.message, this.retryable);
+  final Object? details;
+  const _HttpError(
+    this.status,
+    this.code,
+    this.message,
+    this.retryable, {
+    this.details,
+  });
+}
+
+const _maxClientDiagnosticChars = 8192;
+
+String _truncateClientDiagnostic(String value) {
+  final trimmed = value.trim();
+  if (trimmed.length <= _maxClientDiagnosticChars) return trimmed;
+  final sideLength = _maxClientDiagnosticChars ~/ 2;
+  final omitted = trimmed.length - (sideLength * 2);
+  return '${trimmed.substring(0, sideLength)}\n'
+      '...[truncated $omitted chars]...\n'
+      '${trimmed.substring(trimmed.length - sideLength)}';
 }

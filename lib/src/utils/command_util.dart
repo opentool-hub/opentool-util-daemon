@@ -5,12 +5,36 @@ class CommandException implements Exception {
   final String command;
   final String message;
   final int? exitCode;
+  final String stdout;
+  final String stderr;
 
-  CommandException(this.command, this.message, {this.exitCode});
+  CommandException(
+    this.command,
+    this.message, {
+    this.exitCode,
+    this.stdout = '',
+    this.stderr = '',
+  });
 
   @override
-  String toString() =>
-      'CommandException(exitCode=$exitCode): $command -> $message';
+  String toString() {
+    final outputs = <String>[
+      if (stderr.trim().isNotEmpty) 'stderr=${_forLog(stderr)}',
+      if (stdout.trim().isNotEmpty) 'stdout=${_forLog(stdout)}',
+    ];
+    final detail = outputs.isEmpty ? _forLog(message) : outputs.join(', ');
+    return 'CommandException(exitCode=$exitCode): ${_forLog(command)} -> $detail';
+  }
+}
+
+const _maxLoggedCommandOutputChars = 8192;
+
+String _forLog(String value) {
+  final escaped = value.trim().replaceAll('\r', r'\r').replaceAll('\n', r'\n');
+  if (escaped.length <= _maxLoggedCommandOutputChars) return escaped;
+  final omitted = escaped.length - _maxLoggedCommandOutputChars;
+  return '${escaped.substring(0, _maxLoggedCommandOutputChars)}'
+      '...[truncated $omitted chars]';
 }
 
 class CommandUtil {
@@ -84,7 +108,20 @@ class CommandUtil {
     if (processResult.exitCode == 0) {
       return processResult.stdout.toString();
     } else {
-      throw CommandException(command, processResult.stderr.toString());
+      final commandStdout = processResult.stdout.toString();
+      final commandStderr = processResult.stderr.toString();
+      final message = commandStderr.trim().isNotEmpty
+          ? commandStderr
+          : commandStdout.trim().isNotEmpty
+          ? commandStdout
+          : 'Process exited with code ${processResult.exitCode}';
+      throw CommandException(
+        command,
+        message,
+        exitCode: processResult.exitCode,
+        stdout: commandStdout,
+        stderr: commandStderr,
+      );
     }
   }
 }

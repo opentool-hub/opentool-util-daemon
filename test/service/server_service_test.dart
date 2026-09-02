@@ -10,6 +10,7 @@ import 'package:opentool_daemon/src/storage/artifact_storage.dart';
 import 'package:opentool_daemon/src/storage/dao.dart';
 import 'package:opentool_daemon/src/utils/platform_detector.dart';
 import 'package:opentool_daemon/src/utils/system_util.dart';
+import 'package:opentool_daemon/src/utils/command_util.dart';
 import 'package:opentool_daemon/src/utils/zip_util.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -178,6 +179,46 @@ ENTRYPOINT ["run.sh"]
         ).exists(),
         isTrue,
       );
+    });
+
+    test('build preserves command diagnostics when a RUN step fails', () async {
+      final source = Directory(p.join(root.path, 'failing-build-source'));
+      await source.create(recursive: true);
+      final script = File(p.join(source.path, 'fail.dart'));
+      await script.writeAsString('''
+import 'dart:io';
+
+void main() {
+  stdout.write('build stdout');
+  stderr.write('build stderr');
+  exitCode = 9;
+}
+''');
+      await File(p.join(source.path, 'Opentoolfile')).writeAsString('''
+RUN "${Platform.resolvedExecutable}" "${script.path}"
+WORKDIR dist
+ENTRYPOINT ["run"]
+''');
+      var completed = false;
+
+      await expectLater(
+        service.buildServer(
+          p.join(source.path, 'Opentoolfile'),
+          'failing-demo',
+          '1.0.0',
+          (_, _) {},
+          () => completed = true,
+        ),
+        throwsA(
+          isA<CommandException>()
+              .having((error) => error.exitCode, 'exitCode', 9)
+              .having((error) => error.stdout, 'stdout', 'build stdout')
+              .having((error) => error.stderr, 'stderr', 'build stderr'),
+        ),
+      );
+      expect(completed, isFalse);
+      expect(await servers.list(), isEmpty);
+      expect(await artifacts.list(), isEmpty);
     });
 
     test('treats a legacy Linux manifest as glibc', () async {
