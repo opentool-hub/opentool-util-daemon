@@ -832,6 +832,98 @@ void main() {
       });
 
       test(
+        'delete stops an active tool and waits for its port to be released',
+        () async {
+          final dao = _toolDao(
+            'tool-delete-running',
+            server,
+            ToolStatusType.RUNNING,
+          );
+          storage.seed([dao]);
+          await _writeToolWorkspace(dao.id, server);
+          final client = _RecordingStopClient();
+          var portChecks = 0;
+          final lifecycleService = ToolService(
+            storage,
+            clientFactory: (_) => client,
+            portAvailability: (_, _) async => ++portChecks >= 2,
+            stopCheckInterval: Duration.zero,
+          );
+
+          await lifecycleService.delete(dao.id);
+
+          expect(client.stopCalls, 1);
+          expect(portChecks, 2);
+          expect(await storage.get(dao.id), isNull);
+          expect(
+            await Directory('$OPENTOOL_PATH/$TOOL_FOLDER/${dao.id}').exists(),
+            isFalse,
+          );
+        },
+      );
+
+      test('delete keeps the record when workspace removal fails', () async {
+        final dao = _toolDao(
+          'tool-delete-locked',
+          server,
+          ToolStatusType.RUNNING,
+        );
+        storage.seed([dao]);
+        final lifecycleService = ToolService(
+          storage,
+          clientFactory: (_) => _RecordingStopClient(),
+          portAvailability: (_, _) async => true,
+          directoryDeleter: (_) async {
+            throw const FileSystemException('workspace is locked');
+          },
+        );
+
+        await expectLater(
+          lifecycleService.delete(dao.id),
+          throwsA(
+            isA<ArtifactOperationException>()
+                .having((error) => error.code, 'code', 'TOOL_DELETE_FAILED')
+                .having((error) => error.retryable, 'retryable', isFalse),
+          ),
+        );
+
+        expect((await storage.get(dao.id))!.status, ToolStatusType.NOT_RUNNING);
+      });
+
+      test(
+        'delete preserves an active record when the tool does not stop',
+        () async {
+          final dao = _toolDao(
+            'tool-delete-timeout',
+            server,
+            ToolStatusType.RUNNING,
+          );
+          storage.seed([dao]);
+          var deleteCalled = false;
+          final lifecycleService = ToolService(
+            storage,
+            clientFactory: (_) => _RecordingStopClient(),
+            portAvailability: (_, _) async => false,
+            directoryDeleter: (_) async => deleteCalled = true,
+            stopCheckInterval: const Duration(milliseconds: 1),
+            stopCheckTimeout: const Duration(milliseconds: 2),
+          );
+
+          await expectLater(
+            lifecycleService.delete(dao.id),
+            throwsA(
+              isA<ArtifactOperationException>()
+                  .having((error) => error.code, 'code', 'TOOL_STOP_TIMEOUT')
+                  .having((error) => error.retryable, 'retryable', isTrue),
+            ),
+          );
+
+          expect(deleteCalled, isFalse);
+          expect((await storage.get(dao.id))!.status, ToolStatusType.RUNNING);
+        },
+      );
+
+      test(
         'delete cancels an in-flight startup without waiting for timeout',
         () async {
           final dao = _toolDao(
@@ -846,6 +938,7 @@ void main() {
             storage,
             clientFactory: (_) => _MutableHealthClient(healthy: false),
             portAllocator: (_, startPort) async => startPort,
+            portAvailability: (_, _) async => true,
             processLauncher: (_, _, _, _, _, _) {
               processLaunched.complete();
               return Completer<int>().future;
@@ -1079,6 +1172,18 @@ class _StoppingClient extends OpenToolClient {
 
   @override
   Future<StatusInfo?> stop() async => null;
+}
+
+class _RecordingStopClient extends OpenToolClient {
+  int stopCalls = 0;
+
+  _RecordingStopClient() : super(toolHost: '127.0.0.1', toolPort: 9010);
+
+  @override
+  Future<StatusInfo?> stop() async {
+    stopCalls++;
+    return null;
+  }
 }
 
 class _MutableHealthClient extends OpenToolClient {

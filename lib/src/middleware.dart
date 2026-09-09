@@ -61,6 +61,8 @@ _HttpError _mapError(Object error, {required String requestPath}) {
       'SERVER_NOT_FOUND' || 'TOOL_NOT_FOUND' || 'TOOL_VERSION_NOT_FOUND' => 404,
       'SERVER_PROTECTED' ||
       'SERVER_IN_USE' ||
+      'TOOL_DELETE_LOCKED' ||
+      'TOOL_STOP_TIMEOUT' ||
       'ARTIFACT_SOURCE_CONFLICT' => 409,
       'ARTIFACT_INVALID' ||
       'ARTIFACT_DIGEST_MISMATCH' ||
@@ -78,6 +80,22 @@ _HttpError _mapError(Object error, {required String requestPath}) {
   }
   if (error is ToolNotFoundException) {
     return _HttpError(404, 'TOOL_NOT_FOUND', error.message, false);
+  }
+  if (error is ToolRestartConflictException) {
+    return _HttpError(409, 'TOOL_RESTART_CONFLICT', error.message, true);
+  }
+  if (error is ToolEndpointConflictException) {
+    return _HttpError(
+      409,
+      'TOOL_ENDPOINT_CONFLICT',
+      'Tool endpoint is already in use',
+      false,
+      details: {
+        'host': error.host,
+        'port': error.port,
+        if (error.listeningPids.isNotEmpty) 'pids': error.listeningPids,
+      },
+    );
   }
   if (error is CommandException && requestPath.endsWith('servers/build')) {
     return _HttpError(

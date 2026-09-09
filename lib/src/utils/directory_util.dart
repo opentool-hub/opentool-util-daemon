@@ -30,6 +30,9 @@ class FileNotFoundException implements Exception {
 }
 
 class DirectoryUtil {
+  static const int _windowsDeleteMaxAttempts = 7;
+  static const Duration _windowsDeleteInitialDelay = Duration(milliseconds: 50);
+
   static String getBaseDir() {
     // Debug mode check using assert
     String? debugDir;
@@ -70,9 +73,29 @@ class DirectoryUtil {
 
   static Future<void> deleteDirectory(String dirPath) async {
     final dir = Directory(dirPath);
-    if (await dir.exists()) {
-      await dir.delete(recursive: true);
+    var retryDelay = _windowsDeleteInitialDelay;
+    for (var attempt = 1; attempt <= _windowsDeleteMaxAttempts; attempt++) {
+      if (!await dir.exists()) return;
+      try {
+        await dir.delete(recursive: true);
+        return;
+      } on FileSystemException catch (error) {
+        if (!isRetryableWindowsDeleteError(error) ||
+            attempt == _windowsDeleteMaxAttempts) {
+          rethrow;
+        }
+        await Future<void>.delayed(retryDelay);
+        retryDelay = Duration(milliseconds: retryDelay.inMilliseconds * 2);
+      }
     }
+  }
+
+  static bool isRetryableWindowsDeleteError(FileSystemException error) {
+    if (!Platform.isWindows) return false;
+    // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_DIR_NOT_EMPTY.
+    // All three can be transient while a just-stopped process releases its
+    // executable, loaded DLLs, or working directory.
+    return const {5, 32, 145}.contains(error.osError?.errorCode);
   }
 
   static String getParentDir(String filePath) {

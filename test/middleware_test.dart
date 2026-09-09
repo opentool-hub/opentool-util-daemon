@@ -67,4 +67,58 @@ void main() {
       },
     });
   });
+
+  test('maps a Tool stop timeout to a retryable conflict', () async {
+    final handler = exceptionHandler()((_) async {
+      throw const ArtifactOperationException(
+        code: 'TOOL_STOP_TIMEOUT',
+        message: 'Tool tool-1 did not release 127.0.0.1:9010',
+        retryable: true,
+      );
+    });
+
+    final response = await handler(
+      Request('DELETE', Uri.parse('http://localhost/tools/tool-1')),
+    );
+    final body = jsonDecode(await response.readAsString());
+
+    expect(response.statusCode, 409);
+    expect(body, {
+      'error': {
+        'code': 'TOOL_STOP_TIMEOUT',
+        'message': 'Tool tool-1 did not release 127.0.0.1:9010',
+        'retryable': true,
+      },
+    });
+  });
+
+  test('maps a Tool endpoint conflict with diagnostics', () async {
+    final handler = exceptionHandler()((_) async {
+      throw const ToolEndpointConflictException(
+        toolId: 'tool-1',
+        host: '127.0.0.1',
+        port: 9010,
+        listeningPids: [1234],
+      );
+    });
+
+    final response = await handler(
+      Request('POST', Uri.parse('http://localhost/tools/tool-1/start')),
+    );
+    final body = jsonDecode(await response.readAsString());
+
+    expect(response.statusCode, 409);
+    expect(body, {
+      'error': {
+        'code': 'TOOL_ENDPOINT_CONFLICT',
+        'message': 'Tool endpoint is already in use',
+        'retryable': false,
+        'details': {
+          'host': '127.0.0.1',
+          'port': 9010,
+          'pids': [1234],
+        },
+      },
+    });
+  });
 }

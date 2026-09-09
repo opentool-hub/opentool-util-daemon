@@ -28,6 +28,8 @@ typedef ToolProcessLauncher =
       bool printStd,
     );
 
+typedef ToolDirectoryDeleter = Future<void> Function(String path);
+
 class ToolService {
   late CacheToolStorage _cacheToolStorage;
   final Map<String, OpenToolClient> _clients = {};
@@ -37,6 +39,7 @@ class ToolService {
   late final PortReservationAllocator _portReservationAllocator;
   late final Future<bool> Function(String host, int port) _portAvailability;
   late final ToolProcessLauncher _processLauncher;
+  late final ToolDirectoryDeleter _directoryDeleter;
   final Future<ServerModel> Function(String serverId)? _serverGetter;
   final Future<List<ServerModel>> Function()? _serverLister;
   final Map<String, Future<ToolModel>> _runFlights = {};
@@ -47,8 +50,8 @@ class ToolService {
   final Duration _readyCheckInterval;
   final Duration _readyCheckTimeout;
   final ToolMaterializationService? _materializationService;
-  static const Duration _stopCheckInterval = Duration(milliseconds: 100);
-  static const Duration _stopCheckTimeout = Duration(seconds: 2);
+  final Duration _stopCheckInterval;
+  final Duration _stopCheckTimeout;
 
   Stream<ToolLifecycleEventModel> get events => _eventController.stream;
 
@@ -60,16 +63,21 @@ class ToolService {
     PortReservationAllocator? portReservationAllocator,
     Future<bool> Function(String host, int port)? portAvailability,
     ToolProcessLauncher? processLauncher,
+    ToolDirectoryDeleter? directoryDeleter,
     Future<ServerModel> Function(String serverId)? serverGetter,
     Future<List<ServerModel>> Function()? serverLister,
     ToolMaterializationService? materializationService,
     Duration readyCheckInterval = const Duration(milliseconds: 500),
     Duration readyCheckTimeout = const Duration(seconds: 180),
+    Duration stopCheckInterval = const Duration(milliseconds: 100),
+    Duration stopCheckTimeout = const Duration(seconds: 2),
   }) : _serverGetter = serverGetter,
        _serverLister = serverLister,
        _materializationService = materializationService,
        _readyCheckInterval = readyCheckInterval,
-       _readyCheckTimeout = readyCheckTimeout {
+       _readyCheckTimeout = readyCheckTimeout,
+       _stopCheckInterval = stopCheckInterval,
+       _stopCheckTimeout = stopCheckTimeout {
     _cacheToolStorage = cacheToolStorage ?? CacheToolStorage(hive);
     _clientFactory = clientFactory ?? _buildClient;
     _portReservationAllocator =
@@ -87,6 +95,8 @@ class ToolService {
               onStderr: onStderr,
               printStd: printStd,
             );
+    _directoryDeleter =
+        directoryDeleter ?? ((path) => DirectoryUtil.deleteDirectory(path));
   }
 
   Future<void> refreshStatusesOnStartup({bool autoRestore = false}) async {
@@ -677,6 +687,10 @@ class ToolService {
   Future<void> _deleteLocked(String toolId) async {
     logger.log(LogModule.tool, "delete.input", detail: "toolId: $toolId");
     final existingToolDao = await _cacheToolStorage.get(toolId);
+    final previousStatus =
+        existingToolDao?.status ?? ToolStatusType.NOT_RUNNING;
+    final shouldStop =
+        existingToolDao != null && previousStatus != ToolStatusType.NOT_RUNNING;
     final generation = _nextLifecycleGeneration(toolId);
     if (existingToolDao != null) {
       existingToolDao.status = ToolStatusType.STOPPING;
@@ -688,7 +702,9 @@ class ToolService {
       );
     }
     OpenToolClient? client = _clients.remove(toolId);
-    if (client != null) {
+    if (shouldStop) {
+      final toolDao = existingToolDao;
+      client ??= _clientFactory(toolDao);
       try {
         await client.stop();
       } catch (error) {
@@ -699,22 +715,55 @@ class ToolService {
           level: Level.WARNING,
         );
       }
+
+      if (!await _waitForPortAvailable(toolDao.host, toolDao.port)) {
+        toolDao.status = previousStatus;
+        await _cacheToolStorage.update(toolDao);
+        throw ArtifactOperationException(
+          code: 'TOOL_STOP_TIMEOUT',
+          message:
+              'Tool $toolId did not release '
+              '${toolDao.host}:${toolDao.port}',
+          retryable: true,
+        );
+      }
     }
 
     _ensureCurrentGeneration(toolId, generation);
-    ToolDao? toolDao = existingToolDao;
-    if (toolDao != null) {
+    final String toolFolder = p.join(OPENTOOL_PATH, TOOL_FOLDER, toolId);
+    try {
+      await _directoryDeleter(toolFolder);
+    } on FileSystemException catch (error, stackTrace) {
+      if (existingToolDao != null) {
+        existingToolDao.status = ToolStatusType.NOT_RUNNING;
+        await _cacheToolStorage.update(existingToolDao);
+      }
+      final locked = DirectoryUtil.isRetryableWindowsDeleteError(error);
+      logger.log(
+        LogModule.tool,
+        "delete.workspace.error",
+        detail: "toolId: $toolId, error: $error\n$stackTrace",
+        level: Level.WARNING,
+      );
+      throw ArtifactOperationException(
+        code: locked ? 'TOOL_DELETE_LOCKED' : 'TOOL_DELETE_FAILED',
+        message: locked
+            ? 'Tool files are in use by another process'
+            : 'Tool files could not be deleted',
+        retryable: locked,
+      );
+    }
+
+    _ensureCurrentGeneration(toolId, generation);
+    if (existingToolDao != null) {
       await _cacheToolStorage.remove(toolId);
       _ensureCurrentGeneration(toolId, generation);
       _emitLifecycleEvent(
         ToolLifecycleEventType.REMOVED,
         ToolLifecycleEventReason.DELETED,
-        ToolModel.fromDao(toolDao),
+        ToolModel.fromDao(existingToolDao),
       );
     }
-
-    final String toolFolder = p.join(OPENTOOL_PATH, TOOL_FOLDER, toolId);
-    await DirectoryUtil.deleteDirectory(toolFolder);
     logger.log(LogModule.tool, "delete.result", detail: "toolId: $toolId");
   }
 
