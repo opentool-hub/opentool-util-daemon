@@ -140,27 +140,38 @@ class DaemonClient {
     void Function(Object error, StackTrace stackTrace)? onError,
   }) async {
     try {
-      Stream<String> sseStream = await serverSse.request(
+      final sseStream = await serverSse.request(
         '/build',
         queryParameters: buildInfoDto.toJson(),
       );
-      void Function(String event, Map<String, dynamic> data) onEvent =
-          (String event, Map<String, dynamic> data) {
-            if (event == EventType.START) {
+      var terminalReceived = false;
+      await for (final chunk in sseStream) {
+        DaemonApiException? terminalError;
+        SseClient.parse(chunk, (event, data) {
+          switch (event) {
+            case EventType.START:
               onStart(EventMessageDto.fromJson(data));
-            } else if (event == EventType.DATA) {
+            case EventType.DATA:
               onData(CommandOutputDto.fromJson(data));
-            } else if (event == EventType.DONE) {
+            case EventType.DONE:
+              terminalReceived = true;
               onDone(EventMessageDto.fromJson(data));
-            }
-          };
-      sseStream.listen(
-        (data) => SseClient.parse(data, onEvent),
-        onError: (error, stackTrace) {
-          onError?.call(_normalizeError(error), stackTrace);
-        },
-        cancelOnError: true,
-      );
+            case EventType.ERROR:
+              terminalReceived = true;
+              terminalError = DaemonApiException.fromResponse(
+                statusCode: data['status'] as int?,
+                body: {'error': data},
+              );
+          }
+        });
+        if (terminalError != null) throw terminalError!;
+        if (terminalReceived) return;
+      }
+      if (!terminalReceived) {
+        throw const SseProtocolException(
+          'Build stream closed before a terminal done or error event',
+        );
+      }
     } catch (error, stackTrace) {
       final normalized = _normalizeError(error);
       if (onError != null) {

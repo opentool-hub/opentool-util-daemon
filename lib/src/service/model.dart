@@ -114,6 +114,7 @@ class VersionModel {
     this.apiVersion = 2,
     this.capabilities = const [
       'artifactRegistryV2',
+      'buildSseTerminalV1',
       'builtinReconcileV1',
       'hubVersionRevisionV1',
       'pullSseV1',

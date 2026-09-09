@@ -232,8 +232,13 @@ class ServerService {
           }),
         );
         try {
-          final output = await CommandUtil.runCommand(sourceDirectory, command);
-          onRun(command, output);
+          onRun(command, '');
+          final output = await CommandUtil.runCommand(
+            sourceDirectory,
+            command,
+            onStdout: (chunk) => onRun('', chunk),
+            onStderr: (chunk) => onRun('', chunk),
+          );
           logger.log(
             LogModule.server,
             'build.command.done',

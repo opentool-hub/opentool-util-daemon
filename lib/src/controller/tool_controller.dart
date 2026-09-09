@@ -11,6 +11,7 @@ import '../service/tool_service.dart';
 import '../service/exception.dart';
 import '../service/builtin_reconcile_service.dart';
 import '../constants.dart';
+import '../error_mapper.dart';
 import 'dto.dart';
 
 class ToolController {
@@ -165,7 +166,12 @@ class ToolController {
         _pushData(
           streamController,
           EventType.ERROR,
-          jsonEncode({'error': error.toString()}),
+          jsonEncode(
+            mapDaemonError(
+              error,
+              requestPath: request.url.path,
+            ).toJson(includeStatus: true),
+          ),
           sseEvent: 'error',
           logMessage: 'toolEvents.error',
         );
@@ -206,46 +212,29 @@ class ToolController {
       try {
         final decoded = jsonDecode(payload);
         if (decoded is! Map<String, dynamic>) {
-          return Response.badRequest(
-            body: jsonEncode({'error': 'request body must be a JSON object'}),
-            headers: JSON_HEADERS,
-          );
+          return _badRequest(request, 'Request body must be a JSON object');
         }
         data = decoded;
       } catch (_) {
-        return Response.badRequest(
-          body: jsonEncode({'error': 'invalid request body'}),
-          headers: JSON_HEADERS,
-        );
+        return _badRequest(request, 'Invalid request body');
       }
       final rawArgs = data['args'];
       if (rawArgs != null) {
         if (rawArgs is! List) {
-          return Response.badRequest(
-            body: jsonEncode({'error': 'args must be a string array'}),
-            headers: JSON_HEADERS,
-          );
+          return _badRequest(request, 'args must be a string array');
         }
         for (final entry in rawArgs) {
           if (entry is! String) {
-            return Response.badRequest(
-              body: jsonEncode({'error': 'args must be a string array'}),
-              headers: JSON_HEADERS,
-            );
+            return _badRequest(request, 'args must be a string array');
           }
           final trimmed = entry.trim();
           if (trimmed.isEmpty) {
-            return Response.badRequest(
-              body: jsonEncode({'error': 'args cannot contain empty values'}),
-              headers: JSON_HEADERS,
-            );
+            return _badRequest(request, 'args cannot contain empty values');
           }
           if (_containsReservedCliArgument(trimmed)) {
-            return Response.badRequest(
-              body: jsonEncode({
-                'error': 'args cannot include opentool runtime arguments',
-              }),
-              headers: JSON_HEADERS,
+            return _badRequest(
+              request,
+              'args cannot include opentool runtime arguments',
             );
           }
           extraCmds.add(trimmed);
@@ -596,7 +585,12 @@ class ToolController {
             _pushData(
               streamController,
               EventType.ERROR,
-              jsonEncode({'error': error.toString()}),
+              jsonEncode(
+                mapDaemonError(
+                  error,
+                  requestPath: request.url.path,
+                ).toJson(includeStatus: true),
+              ),
               logMessage: "streamCallTool.error",
             );
             logger.log(
@@ -620,9 +614,9 @@ class ToolController {
     logger.log(LogModule.http, "loadTool.input", detail: "toolId: $toolId");
     OpenTool? openTool = await toolService.load(toolId);
     if (openTool == null) {
-      return Response.notFound(
-        jsonEncode(JsonParserException().toJson()),
-        headers: JSON_HEADERS,
+      return daemonErrorResponse(
+        ToolNotFoundException(toolId),
+        requestPath: request.url.path,
       );
     }
     final responseBody = openTool.toJson();
@@ -694,13 +688,22 @@ class ToolController {
     try {
       await manageService.ensureDaemonApiKey(token);
       return null;
-    } on ApiKeyNotFoundException catch (error) {
-      return Response.forbidden(
-        jsonEncode({'error': error.toString()}),
-        headers: JSON_HEADERS,
+    } on ApiKeyNotFoundException {
+      return daemonErrorResponse(
+        const ArtifactOperationException(
+          code: 'HOST_AUTH_REQUIRED',
+          message: 'A valid daemon API key is required',
+          retryable: false,
+        ),
+        requestPath: request.url.path,
       );
     }
   }
+
+  Response _badRequest(Request request, String message) => daemonErrorResponse(
+    FormatException(message),
+    requestPath: request.url.path,
+  );
 
   Future<Response?> _validateToolEventAccess(Request request) async {
     final authenticator = hostAuthenticator;

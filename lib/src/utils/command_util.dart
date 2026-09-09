@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -28,6 +29,7 @@ class CommandException implements Exception {
 }
 
 const _maxLoggedCommandOutputChars = 8192;
+const _maxRetainedStreamOutputChars = 8192;
 
 String _forLog(String value) {
   final escaped = value.trim().replaceAll('\r', r'\r').replaceAll('\n', r'\n');
@@ -65,63 +67,132 @@ class CommandUtil {
       );
     }
 
-    process.stdout
+    final commandStdout = _BoundedTextBuffer(_maxRetainedStreamOutputChars);
+    final commandStderr = _BoundedTextBuffer(_maxRetainedStreamOutputChars);
+    final stdoutDone = process.stdout
         .transform(SystemEncoding().decoder)
         .transform(const LineSplitter())
         .listen((line) {
+          commandStdout.writeln(line);
           if (printStd) stdout.writeln(line);
           onStdout?.call(command, line);
-        });
+        })
+        .asFuture<void>();
 
-    process.stderr
+    final stderrDone = process.stderr
         .transform(SystemEncoding().decoder)
         .transform(const LineSplitter())
         .listen((line) {
+          commandStderr.writeln(line);
           if (printStd) stderr.writeln(line);
           onStderr?.call(command, line);
-        });
+        })
+        .asFuture<void>();
 
     final exitCode = await process.exitCode;
+    await Future.wait([stdoutDone, stderrDone]);
     if (exitCode != 0) {
       throw CommandException(
         fullCommand,
         'Process exited with code $exitCode',
         exitCode: exitCode,
+        stdout: commandStdout.toString(),
+        stderr: commandStderr.toString(),
       );
     }
     return exitCode;
   }
 
-  static Future<String> runCommand(String workDir, String command) async {
-    ProcessResult processResult;
+  static Future<String> runCommand(
+    String workDir,
+    String command, {
+    void Function(String output)? onStdout,
+    void Function(String output)? onStderr,
+  }) async {
+    Process process;
     if (Platform.isWindows) {
-      processResult = await Process.run('cmd', [
+      process = await Process.start('cmd', [
         '/c',
         command,
       ], workingDirectory: workDir);
     } else {
-      processResult = await Process.run('bash', [
+      process = await Process.start('bash', [
         '-c',
         command,
       ], workingDirectory: workDir);
     }
-    if (processResult.exitCode == 0) {
-      return processResult.stdout.toString();
+    final commandStdout = StringBuffer();
+    final commandStderr = StringBuffer();
+    final stdoutDone = process.stdout
+        .transform(SystemEncoding().decoder)
+        .listen((chunk) {
+          commandStdout.write(chunk);
+          onStdout?.call(chunk);
+        })
+        .asFuture<void>();
+    final stderrDone = process.stderr
+        .transform(SystemEncoding().decoder)
+        .listen((chunk) {
+          commandStderr.write(chunk);
+          onStderr?.call(chunk);
+        })
+        .asFuture<void>();
+    final exitCode = await process.exitCode;
+    await Future.wait([stdoutDone, stderrDone]);
+    final stdoutText = commandStdout.toString();
+    final stderrText = commandStderr.toString();
+    if (exitCode == 0) {
+      return stdoutText;
     } else {
-      final commandStdout = processResult.stdout.toString();
-      final commandStderr = processResult.stderr.toString();
-      final message = commandStderr.trim().isNotEmpty
-          ? commandStderr
-          : commandStdout.trim().isNotEmpty
-          ? commandStdout
-          : 'Process exited with code ${processResult.exitCode}';
+      final message = stderrText.trim().isNotEmpty
+          ? stderrText
+          : stdoutText.trim().isNotEmpty
+          ? stdoutText
+          : 'Process exited with code $exitCode';
       throw CommandException(
         command,
         message,
-        exitCode: processResult.exitCode,
-        stdout: commandStdout,
-        stderr: commandStderr,
+        exitCode: exitCode,
+        stdout: stdoutText,
+        stderr: stderrText,
       );
     }
   }
+}
+
+class _BoundedTextBuffer {
+  final int maxChars;
+  final ListQueue<String> _chunks = ListQueue<String>();
+  int _length = 0;
+
+  _BoundedTextBuffer(this.maxChars);
+
+  void writeln(String value) => write('$value\n');
+
+  void write(String value) {
+    if (maxChars <= 0 || value.isEmpty) return;
+    if (value.length >= maxChars) {
+      _chunks
+        ..clear()
+        ..add(value.substring(value.length - maxChars));
+      _length = maxChars;
+      return;
+    }
+
+    _chunks.addLast(value);
+    _length += value.length;
+    while (_length > maxChars) {
+      final excess = _length - maxChars;
+      final first = _chunks.removeFirst();
+      if (first.length <= excess) {
+        _length -= first.length;
+      } else {
+        _chunks.addFirst(first.substring(excess));
+        _length -= excess;
+      }
+    }
+  }
+
+  @override
+  String toString() => _chunks.join();
 }

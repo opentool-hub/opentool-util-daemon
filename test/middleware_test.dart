@@ -60,11 +60,48 @@ void main() {
         'message': 'Build command failed',
         'retryable': false,
         'details': {
+          'command': 'dart compile exe bin/main.dart',
           'exitCode': 254,
           'stderr': 'No named parameter with the name cliTool',
           'stdout': 'compiler context',
         },
       },
+    });
+  });
+
+  test('preserves actionable validation messages', () async {
+    final handler = exceptionHandler()((_) async {
+      throw const FormatException('Manifest must be a JSON object');
+    });
+
+    final response = await handler(
+      Request('POST', Uri.parse('http://localhost/servers/import')),
+    );
+    final body = jsonDecode(await response.readAsString());
+
+    expect(response.statusCode, 400);
+    expect(body['error'], {
+      'code': 'INVALID_REQUEST',
+      'message': 'Manifest must be a JSON object',
+      'retryable': false,
+    });
+  });
+
+  test('maps a malformed Opentoolfile to an actionable 422 error', () async {
+    final handler = exceptionHandler()((_) async {
+      throw OpentoolfileMissingArgumentException('WORKDIR');
+    });
+
+    final response = await handler(
+      Request('POST', Uri.parse('http://localhost/servers/build')),
+    );
+    final body = jsonDecode(await response.readAsString());
+
+    expect(response.statusCode, 422);
+    expect(body['error'], {
+      'code': 'OPENTOOLFILE_INVALID',
+      'message': 'Invalid Opentoolfile: WORKDIR is missing',
+      'retryable': false,
     });
   });
 

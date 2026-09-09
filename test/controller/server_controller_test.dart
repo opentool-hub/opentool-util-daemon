@@ -7,6 +7,7 @@ import 'package:opentool_daemon/src/service/hub_pull_service.dart';
 import 'package:opentool_daemon/src/service/pull_cancellation.dart';
 import 'package:opentool_daemon/src/service/model.dart';
 import 'package:opentool_daemon/src/service/server_service.dart';
+import 'package:opentool_daemon/src/utils/command_util.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 import '../test_doubles.dart';
@@ -94,6 +95,58 @@ void main() {
       expect(payload['id'], equals('srv-1'));
       expect(serverService.lastDeletedId, equals('srv-1'));
       expect(serverService.list(), completion(isEmpty));
+    });
+
+    test('buildServer returns SSE before the build completes', () async {
+      final release = Completer<void>();
+      final buildService = _ControlledBuildServerService(release.future);
+      controller = ServerController(buildService);
+      final response = await controller.buildServer(
+        Request(
+          'POST',
+          Uri.parse(
+            'http://localhost/opentool-daemon/servers/build?'
+            'opentoolfile=Opentoolfile&name=demo&tag=1.0.0',
+          ),
+        ),
+      );
+
+      expect(response.statusCode, 200);
+      final bodyFuture = response.readAsString();
+      expect(release.isCompleted, isFalse);
+      release.complete();
+
+      final body = await bodyFuture;
+      expect(body, contains('event:start'));
+      expect(body, contains('event:data'));
+      expect(body, contains('event:done'));
+      expect(body.indexOf('event:start'), lessThan(body.indexOf('event:data')));
+      expect(body.indexOf('event:data'), lessThan(body.indexOf('event:done')));
+    });
+
+    test('buildServer emits a structured terminal error event', () async {
+      final buildService = _ControlledBuildServerService(
+        Future<void>.value(),
+        fail: true,
+      );
+      controller = ServerController(buildService);
+      final response = await controller.buildServer(
+        Request(
+          'POST',
+          Uri.parse(
+            'http://localhost/opentool-daemon/servers/build?'
+            'opentoolfile=Opentoolfile&name=demo&tag=1.0.0',
+          ),
+        ),
+      );
+
+      final body = await response.readAsString();
+      expect(response.statusCode, 200);
+      expect(body, contains('event:error'));
+      expect(body, contains('"status":422'));
+      expect(body, contains('"code":"BUILD_COMMAND_FAILED"'));
+      expect(body, contains('"command":"mv input output"'));
+      expect(body, isNot(contains('event:done')));
     });
 
     test('pullServer returns SSE before the registration completes', () async {
@@ -194,6 +247,34 @@ void main() {
       },
     );
   });
+}
+
+class _ControlledBuildServerService extends FakeServerService {
+  final Future<void> release;
+  final bool fail;
+
+  _ControlledBuildServerService(this.release, {this.fail = false});
+
+  @override
+  Future<void> buildServer(
+    String path,
+    String name,
+    String? tag,
+    void Function(String command, String output) onRun,
+    void Function() onDone,
+  ) async {
+    onRun('build command', 'partial output');
+    await release;
+    if (fail) {
+      throw CommandException(
+        'mv input output',
+        'command not found',
+        exitCode: 1,
+        stderr: 'command not found',
+      );
+    }
+    onDone();
+  }
 }
 
 class _ControlledHubPullService extends HubPullService {

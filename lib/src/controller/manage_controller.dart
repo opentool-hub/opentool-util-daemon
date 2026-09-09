@@ -7,6 +7,7 @@ import '../service/manage_service.dart';
 import '../service/model.dart';
 import '../service/exception.dart';
 import '../constants.dart';
+import '../error_mapper.dart';
 import 'dto.dart';
 
 class ManageController {
@@ -39,10 +40,10 @@ class ManageController {
       try {
         final dto = CreateApiKeyDto.fromJson(jsonDecode(payload));
         name = dto.name;
-      } catch (_) {
-        return Response.badRequest(
-          body: jsonEncode({'error': 'invalid request body'}),
-          headers: JSON_HEADERS,
+      } catch (error) {
+        return daemonErrorResponse(
+          const FormatException('Invalid request body'),
+          requestPath: request.url.path,
         );
       }
     }
@@ -92,10 +93,7 @@ class ManageController {
       await manageService.ensureSudoToken(token);
       return null;
     } on SudoAuthorizationException catch (error) {
-      return Response.forbidden(
-        jsonEncode({'error': error.message}),
-        headers: JSON_HEADERS,
-      );
+      return daemonErrorResponse(error, requestPath: request.url.path);
     }
   }
 }

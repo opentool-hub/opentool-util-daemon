@@ -139,12 +139,14 @@ class ArtifactOperationException implements Exception {
   final String message;
   final bool retryable;
   final String? requestId;
+  final Object? details;
 
   const ArtifactOperationException({
     required this.code,
     required this.message,
     required this.retryable,
     this.requestId,
+    this.details,
   });
 
   @override

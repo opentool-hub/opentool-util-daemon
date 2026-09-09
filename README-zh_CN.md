@@ -28,7 +28,7 @@ dart run bin/opentool_daemon.dart --config bin/config.json
 - 只需写入你想覆盖的字段即可，其余保持默认，例如 `{ "server": { "port": 20000 } }` 只会修改端口。
 - `--config <path>` 与 `--config=<path>` 都会加载指定文件；显式指定的文件不存在或内容无效时，daemon 会启动失败，不会静默使用另一份配置。
 - 仓库内的 `bin/config.json` 固定使用 `127.0.0.1`。除非已有可靠的网络鉴权边界，否则不要把 daemon 暴露到非本机网络。
-- 发布构建使用编译期版本（当前为 `0.5.1`），AOT 二进制不依赖运行目录中的 `pubspec.yaml`。
+- 发布构建使用编译期版本（当前为 `0.5.2`），AOT 二进制不依赖运行目录中的 `pubspec.yaml`。
 
 ---
 
@@ -96,9 +96,9 @@ daemon 不承担 Hub 登录和发布，只负责公开制品的解析、下载�
 ```json
 {
   "name": "OpenTool Daemon",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "apiVersion": 2,
-  "capabilities": ["artifactRegistryV2", "builtinReconcileV1", "hubVersionRevisionV1", "pullSseV1", "startToolTerminalV1", "toolMaterializationV1"]
+  "capabilities": ["artifactRegistryV2", "buildSseTerminalV1", "builtinReconcileV1", "hubVersionRevisionV1", "pullSseV1", "startToolTerminalV1", "toolMaterializationV1"]
 }
 ```
 
@@ -231,6 +231,10 @@ SSE `event:DATA` 中包含正在执行的脚本与输出：
 }
 ```
 `event:DONE` 表示 `.ots` 已提交到内容寻址 Artifact Registry 并关闭连接。
+接口会立即返回 SSE，并在命令执行过程中持续发送输出。终态 `event:ERROR`
+包含 `status`、`code`、`message`、`retryable` 以及经过长度限制的 `details`；
+构建命令失败统一使用 `BUILD_COMMAND_FAILED`，详情包含 `command`、`exitCode`、
+`stdout` 和 `stderr`。
 生成的根目录 `Opentoolfile.json` 会写入 `os`、`cpuArch` 和 `abi`。Daemon 在
 Linux 上自动检测 `glibc` 或 `musl`，在 macOS 和 Windows 上写入 `native`；仅当
 Linux ABI 无法自动检测时才需要设置 `OPENTOOL_LINUX_ABI=glibc|musl`。旧版 Linux

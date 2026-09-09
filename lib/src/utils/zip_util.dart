@@ -5,6 +5,7 @@ import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
 
 import '../constants.dart';
+import 'directory_util.dart';
 
 class ZipInspection {
   final Map<String, dynamic> manifest;
@@ -34,7 +35,7 @@ class ZipUtil {
   ) async {
     final sourceDir = Directory(sourceDirPath);
     if (!await sourceDir.exists()) {
-      throw Exception('Source directory does not exist: $sourceDirPath');
+      throw FileNotFoundException(sourceDirPath);
     }
 
     final encoder = ZipEncoder();
@@ -78,7 +79,7 @@ class ZipUtil {
   static Future<String> unzipToTemp(String zipFilePath) async {
     final sourceFile = File(zipFilePath);
     if (!await sourceFile.exists()) {
-      throw Exception('Source file not found: $zipFilePath');
+      throw FileNotFoundException(zipFilePath);
     }
     final tmpDir = await Directory.systemTemp.createTemp('opentool_unpack_');
     final extractDir = tmpDir.path;
@@ -132,7 +133,7 @@ class ZipUtil {
   static Future<_DecodedArchive> _decodeAndValidate(String zipFilePath) async {
     final sourceFile = File(zipFilePath);
     if (!await sourceFile.exists()) {
-      throw Exception('Source file not found: $zipFilePath');
+      throw FileNotFoundException(zipFilePath);
     }
     final input = InputFileStream(zipFilePath);
     try {

@@ -28,7 +28,7 @@ The daemon will persist metadata under `~/.opentool` (servers, tools, config) an
 - Any field you provide overrides the default while other properties stay untouched; e.g. `{ "server": { "port": 20000 } }` keeps the host/prefix unchanged.
 - Both `--config <path>` and `--config=<path>` load an explicit file. A missing or invalid explicitly selected file fails startup instead of silently selecting another configuration.
 - The repository `bin/config.json` binds `127.0.0.1`. Keep the daemon on loopback unless an authenticated network boundary is provided.
-- Release builds use the compile-time daemon version (`0.5.1` in this release), so AOT binaries do not depend on a runtime `pubspec.yaml`.
+- Release builds use the compile-time daemon version (`0.5.2` in this release), so AOT binaries do not depend on a runtime `pubspec.yaml`.
 
 ---
 
@@ -99,9 +99,9 @@ Hub authentication and publishing are intentionally not daemon responsibilities.
 ```json
 {
   "name": "OpenTool Daemon",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "apiVersion": 2,
-  "capabilities": ["artifactRegistryV2", "builtinReconcileV1", "hubVersionRevisionV1", "pullSseV1", "startToolTerminalV1", "toolMaterializationV1"]
+  "capabilities": ["artifactRegistryV2", "buildSseTerminalV1", "builtinReconcileV1", "hubVersionRevisionV1", "pullSseV1", "startToolTerminalV1", "toolMaterializationV1"]
 }
 ```
 
@@ -251,6 +251,10 @@ Streams build progress for each command listed in `Opentoolfile`. `event:DATA` p
 }
 ```
 `event:DONE` closes the stream once the `.ots` artifact is committed to the content-addressed Artifact Registry.
+The endpoint returns the SSE response immediately and streams command output as
+it is produced. A terminal `event:ERROR` contains `status`, `code`, `message`,
+`retryable`, and bounded `details`. Build command failures use
+`BUILD_COMMAND_FAILED` and include `command`, `exitCode`, `stdout`, and `stderr`.
 The generated root `Opentoolfile.json` records `os`, `cpuArch`, and `abi`.
 The daemon detects `glibc` or `musl` on Linux and writes `native` on macOS and
 Windows. Set `OPENTOOL_LINUX_ABI=glibc|musl` only when automatic Linux ABI

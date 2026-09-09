@@ -1,5 +1,11 @@
-## Unreleased
+## 0.5.2
 
+- Return Build SSE immediately, stream command output while it is produced, and
+  finish only with a terminal `done` or structured `error` event
+- Advertise `buildSseTerminalV1` so clients reject daemons that do not support
+  the terminal Build stream contract
+- Standardize expected validation, filesystem, authentication, and not-found
+  failures as actionable 4xx error envelopes instead of generic 500 responses
 - Add correlated Server build lifecycle logs with command exit codes, stdout,
   stderr, failure phases, and durations
 - Return failed Server build commands as `422 BUILD_COMMAND_FAILED` with

@@ -127,6 +127,100 @@ void main() {
       );
     });
 
+    test('buildServer waits for a terminal done event', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final release = Completer<void>();
+      final serving = server.listen((request) async {
+        await request.drain<void>();
+        request.response.headers.contentType = ContentType(
+          'text',
+          'event-stream',
+        );
+        request.response.write('event:start\ndata:{"message":"started"}\n\n');
+        await request.response.flush();
+        await release.future;
+        request.response.write('event:done\ndata:{"message":"done"}\n\n');
+        await request.response.close();
+      });
+      try {
+        final client = DaemonClient(
+          host: server.address.host,
+          port: server.port,
+        );
+        var completed = false;
+        final build = client.buildServer(
+          BuildInfoDto(
+            opentoolfile: 'Opentoolfile',
+            name: 'demo',
+            tag: '1.0.0',
+          ),
+          onStart: (_) {},
+          onData: (_) {},
+          onDone: (_) => completed = true,
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(completed, isFalse);
+        release.complete();
+        await build;
+        expect(completed, isTrue);
+      } finally {
+        await server.close(force: true);
+        await serving.cancel();
+      }
+    });
+
+    test('buildServer turns a terminal error event into diagnostics', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final serving = server.listen((request) async {
+        await request.drain<void>();
+        request.response.headers.contentType = ContentType(
+          'text',
+          'event-stream',
+        );
+        request.response.write(
+          'event:error\n'
+          'data:{"status":422,"code":"BUILD_COMMAND_FAILED",'
+          '"message":"Build command failed","retryable":false,'
+          '"details":{"command":"mv input output","exitCode":1,'
+          '"stderr":"command not found"}}\n\n',
+        );
+        await request.response.close();
+      });
+      try {
+        final client = DaemonClient(
+          host: server.address.host,
+          port: server.port,
+        );
+
+        await expectLater(
+          client.buildServer(
+            BuildInfoDto(
+              opentoolfile: 'Opentoolfile',
+              name: 'demo',
+              tag: '1.0.0',
+            ),
+            onStart: (_) {},
+            onData: (_) {},
+            onDone: (_) {},
+          ),
+          throwsA(
+            isA<DaemonApiException>()
+                .having((error) => error.statusCode, 'statusCode', 422)
+                .having((error) => error.code, 'code', 'BUILD_COMMAND_FAILED')
+                .having(
+                  (error) => error.details,
+                  'details',
+                  containsPair('command', 'mv input output'),
+                ),
+          ),
+        );
+      } finally {
+        await server.close(force: true);
+        await serving.cancel();
+      }
+    });
+
     test('pullServer sends the install request and waits for done', () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       Map<String, dynamic>? requestBody;

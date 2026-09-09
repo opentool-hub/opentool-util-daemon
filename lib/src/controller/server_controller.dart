@@ -11,6 +11,7 @@ import '../service/builtin_reconcile_service.dart';
 import '../service/pull_cancellation.dart';
 import '../service/server_service.dart';
 import '../constants.dart';
+import '../error_mapper.dart';
 import 'dto.dart';
 
 class ServerController {
@@ -66,46 +67,73 @@ class ServerController {
     if (opentoolfile == null || name == null)
       throw ArgumentError('Missing required parameters');
 
-    StreamController<List<int>> streamController =
-        StreamController<List<int>>();
-    EventMessageDto startMessageDto = EventMessageDto(
-      message: "Build server start - name: $name, tag: $tag",
+    var cancelled = false;
+    late final StreamController<List<int>> streamController;
+    streamController = StreamController<List<int>>(
+      onCancel: () => cancelled = true,
     );
-    _pushData(
-      streamController,
-      EventType.START,
-      jsonEncode(startMessageDto.toJson()),
-      logMessage: "buildServer.push",
-    );
-    await serverService.buildServer(
-      opentoolfile,
-      name,
-      tag,
-      (String runScript, String output) {
-        CommandOutputDto commandOutputDto = CommandOutputDto(
-          script: runScript,
-          output: output,
-        );
+    scheduleMicrotask(() async {
+      try {
         _pushData(
           streamController,
-          EventType.DATA,
-          jsonEncode(commandOutputDto.toJson()),
+          EventType.START,
+          jsonEncode(
+            EventMessageDto(
+              message: "Build server start - name: $name, tag: $tag",
+            ).toJson(),
+          ),
           logMessage: "buildServer.push",
         );
-      },
-      () {
-        EventMessageDto doneMessageDto = EventMessageDto(
-          message: "Build server done - name: $name, tag: $tag",
+        await serverService.buildServer(
+          opentoolfile,
+          name,
+          tag,
+          (String runScript, String output) {
+            if (cancelled) return;
+            _pushData(
+              streamController,
+              EventType.DATA,
+              jsonEncode(
+                CommandOutputDto(script: runScript, output: output).toJson(),
+              ),
+              logMessage: "buildServer.push",
+            );
+          },
+          () {
+            if (cancelled) return;
+            _pushData(
+              streamController,
+              EventType.DONE,
+              jsonEncode(
+                EventMessageDto(
+                  message: "Build server done - name: $name, tag: $tag",
+                ).toJson(),
+              ),
+              logMessage: "buildServer.push",
+            );
+          },
         );
-        _pushData(
-          streamController,
-          EventType.DONE,
-          jsonEncode(doneMessageDto.toJson()),
-          logMessage: "buildServer.push",
+      } catch (error, stackTrace) {
+        final mapped = mapDaemonError(error, requestPath: 'servers/build');
+        logger.log(
+          LogModule.server,
+          'buildServer.error',
+          detail: 'code: ${mapped.code}, error: $error\n$stackTrace',
+          level: Level.WARNING,
         );
-        streamController.close();
-      },
-    );
+        if (!cancelled) {
+          _pushData(
+            streamController,
+            EventType.ERROR,
+            jsonEncode(mapped.toJson(includeStatus: true)),
+            logMessage: 'buildServer.error',
+          );
+        }
+      } finally {
+        if (!streamController.isClosed) await streamController.close();
+      }
+    });
+
     return Response.ok(
       streamController.stream,
       headers: STREAM_HEADERS,
@@ -142,14 +170,13 @@ class ServerController {
   Future<Response> pullServer(Request request) async {
     final service = hubPullService;
     if (service == null) {
-      return Response.internalServerError(
-        body: jsonEncode({
-          'error': {
-            'code': 'PULL_FAILED',
-            'message': 'Hub pull service is unavailable',
-          },
-        }),
-        headers: JSON_HEADERS,
+      return daemonErrorResponse(
+        const ArtifactOperationException(
+          code: 'HUB_UNAVAILABLE',
+          message: 'Hub pull service is unavailable',
+          retryable: true,
+        ),
+        requestPath: request.url.path,
       );
     }
     final String payload;
@@ -169,11 +196,11 @@ class ServerController {
         client: dto.client,
       );
     } catch (error) {
-      return Response.badRequest(
-        body: jsonEncode({
-          'error': {'code': 'INVALID_REQUEST', 'message': error.toString()},
-        }),
-        headers: JSON_HEADERS,
+      return daemonErrorResponse(
+        error is FormatException || error is ArgumentError
+            ? error
+            : const FormatException('Invalid pull request'),
+        requestPath: request.url.path,
       );
     }
     logger.log(
