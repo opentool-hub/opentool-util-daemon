@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:logging/logging.dart';
 import 'package:opentool_daemon/opentool_daemon_utils.dart';
 import 'package:unique_id_dart/unique_id_dart.dart';
@@ -49,6 +50,7 @@ class ToolService {
   final Map<String, int> _lifecycleRequestEpochs = {};
   final Duration _readyCheckInterval;
   final Duration _readyCheckTimeout;
+  final Duration _lifecycleRequestTimeout;
   final ToolMaterializationService? _materializationService;
   final Duration _stopCheckInterval;
   final Duration _stopCheckTimeout;
@@ -69,6 +71,7 @@ class ToolService {
     ToolMaterializationService? materializationService,
     Duration readyCheckInterval = const Duration(milliseconds: 500),
     Duration readyCheckTimeout = const Duration(seconds: 180),
+    Duration lifecycleRequestTimeout = const Duration(seconds: 5),
     Duration stopCheckInterval = const Duration(milliseconds: 100),
     Duration stopCheckTimeout = const Duration(seconds: 2),
   }) : _serverGetter = serverGetter,
@@ -76,6 +79,7 @@ class ToolService {
        _materializationService = materializationService,
        _readyCheckInterval = readyCheckInterval,
        _readyCheckTimeout = readyCheckTimeout,
+       _lifecycleRequestTimeout = lifecycleRequestTimeout,
        _stopCheckInterval = stopCheckInterval,
        _stopCheckTimeout = stopCheckTimeout {
     _cacheToolStorage = cacheToolStorage ?? CacheToolStorage(hive);
@@ -113,7 +117,7 @@ class ToolService {
       if (persistedStatus == ToolStatusType.STOPPING) {
         final client = _clients[toolDao.id] ?? _registerClient(toolDao);
         try {
-          await client.stop();
+          await _stopWithTimeout(client);
         } catch (_) {
           // A persisted stopping state is completed as notRunning on restart.
         }
@@ -662,7 +666,7 @@ class ToolService {
     );
     final client = _clients[toolId] ?? _registerClient(toolDao);
     try {
-      await client.stop();
+      await _stopWithTimeout(client);
     } on OpenToolServerNoAccessException {
       // An unreachable process is already stopped from the daemon's view.
     } on SocketException {
@@ -706,7 +710,7 @@ class ToolService {
       final toolDao = existingToolDao;
       client ??= _clientFactory(toolDao);
       try {
-        await client.stop();
+        await _stopWithTimeout(client);
       } catch (error) {
         logger.log(
           LogModule.tool,
@@ -970,7 +974,7 @@ class ToolService {
   Future<bool> _isHealthy(ToolDao toolDao) async {
     final client = _clients[toolDao.id] ?? _registerClient(toolDao);
     try {
-      await client.version();
+      await _versionWithTimeout(client);
       return true;
     } catch (_) {
       return false;
@@ -980,7 +984,7 @@ class ToolService {
   Future<void> _prepareUnhealthyToolForRestart(ToolDao toolDao) async {
     final client = _clients[toolDao.id] ?? _registerClient(toolDao);
     try {
-      await client.stop();
+      await _stopWithTimeout(client);
     } catch (_) {
       // Readiness already failed. The port check below is the authoritative
       // guard against starting a second process.
@@ -1046,7 +1050,7 @@ class ToolService {
       _ensureCurrentGeneration(toolId, generation);
       final client = _clients[toolId] ?? _registerClient(toolDao);
       try {
-        await client.version();
+        await _versionWithTimeout(client);
         _ensureCurrentGeneration(toolId, generation);
         return;
       } on OpenToolServerUnauthorizedException {
@@ -1074,6 +1078,12 @@ class ToolService {
 
   Future<T> _withLifecycleLock<T>(String toolId, Future<T> Function() action) =>
       _lifecycleLocks.putIfAbsent(toolId, _AsyncMutex.new).run(action);
+
+  Future<Version> _versionWithTimeout(OpenToolClient client) =>
+      client.version().timeout(_lifecycleRequestTimeout);
+
+  Future<StatusInfo?> _stopWithTimeout(OpenToolClient client) =>
+      client.stop().timeout(_lifecycleRequestTimeout);
 
   int _nextLifecycleGeneration(String toolId) {
     final generation = (_lifecycleGenerations[toolId] ?? 0) + 1;
@@ -1132,11 +1142,25 @@ class ToolService {
         toolDao.host.isEmpty || toolDao.host == HostType.ANY
         ? HostType.LOCALHOST
         : toolDao.host;
-    return OpenToolClient(
+    final client = OpenToolClient(
       toolHost: resolvedHost,
       toolPort: toolDao.port,
       toolApiKey: toolDao.apiKey,
     );
+    client.dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          if (options.path == '/version' || options.path == '/stop') {
+            options
+              ..connectTimeout = _lifecycleRequestTimeout
+              ..sendTimeout = _lifecycleRequestTimeout
+              ..receiveTimeout = _lifecycleRequestTimeout;
+          }
+          handler.next(options);
+        },
+      ),
+    );
+    return client;
   }
 
   String _resolveWorkdir(String baseFolder, String configuredWorkdir) {

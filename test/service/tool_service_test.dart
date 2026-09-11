@@ -137,6 +137,56 @@ void main() {
       },
     );
 
+    test('lifecycle request timeout does not limit function calls', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final serving = server.listen((request) async {
+        final body =
+            jsonDecode(await utf8.decoder.bind(request).join())
+                as Map<String, dynamic>;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'jsonrpc': '2.0',
+            'result': {'value': body['params']['value']},
+            'id': body['id'],
+          }),
+        );
+        await request.response.close();
+      });
+      hiveToolStorage.seed([
+        ToolDao(
+          id: 'slow-tool',
+          alias: 'slow-tool',
+          tag: '1.0.0',
+          host: server.address.host,
+          port: server.port,
+          apiKey: 'key',
+          status: ToolStatusType.RUNNING,
+        ),
+      ]);
+      service = ToolService(
+        hiveToolStorage,
+        lifecycleRequestTimeout: const Duration(milliseconds: 10),
+      );
+
+      try {
+        final result = await service.call(
+          'slow-tool',
+          FunctionCall(
+            id: 'call-1',
+            name: 'slow',
+            arguments: const {'value': 42},
+          ),
+        );
+
+        expect(result.result, equals({'value': 42}));
+      } finally {
+        await server.close(force: true);
+        await serving.cancel();
+      }
+    });
+
     test('stop emits draining before marking the tool not running', () async {
       service = ToolService(
         hiveToolStorage,
@@ -966,6 +1016,41 @@ void main() {
         },
       );
 
+      test('delete releases a startup blocked in its health request', () async {
+        final dao = _toolDao(
+          'tool-delete-during-hung-health-check',
+          server,
+          ToolStatusType.NOT_RUNNING,
+        );
+        storage.seed([dao]);
+        await _writeToolWorkspace(dao.id, server);
+        final processLaunched = Completer<void>();
+        final lifecycleService = ToolService(
+          storage,
+          clientFactory: (_) => _HangingHealthClient(),
+          portAllocator: (_, startPort) async => startPort,
+          portAvailability: (_, _) async => true,
+          processLauncher: (_, _, _, _, _, _) {
+            processLaunched.complete();
+            return Completer<int>().future;
+          },
+          readyCheckInterval: Duration.zero,
+          readyCheckTimeout: const Duration(seconds: 30),
+          lifecycleRequestTimeout: const Duration(milliseconds: 20),
+        );
+
+        final startFuture = lifecycleService.startTool(ToolModel.fromDao(dao));
+        final startExpectation = expectLater(startFuture, throwsA(anything));
+        await processLaunched.future;
+
+        await lifecycleService
+            .delete(dao.id)
+            .timeout(const Duration(seconds: 1));
+        await startExpectation;
+
+        expect(await storage.get(dao.id), isNull);
+      });
+
       test('old process exit cannot stop a newer generation', () async {
         final dao = _toolDao(
           'tool-old-process-exit',
@@ -1204,6 +1289,17 @@ class _MutableHealthClient extends OpenToolClient {
     healthy = healthyAfterStop;
     return null;
   }
+}
+
+class _HangingHealthClient extends OpenToolClient {
+  _HangingHealthClient()
+    : super(toolHost: '127.0.0.1', toolPort: TOOL_DEFAULT_PORT);
+
+  @override
+  Future<Version> version() => Completer<Version>().future;
+
+  @override
+  Future<StatusInfo?> stop() async => null;
 }
 
 class _UnauthorizedHealthClient extends OpenToolClient {
