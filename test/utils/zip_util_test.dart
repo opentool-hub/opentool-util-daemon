@@ -34,6 +34,120 @@ void main() {
     await Directory(targetDir.path).delete(recursive: true);
   });
 
+  test(
+    'zipDirectory and extraction preserve nested executable permissions',
+    () async {
+      final sourceDir = await Directory.systemTemp.createTemp('zip-mode-src');
+      final targetDir = await Directory.systemTemp.createTemp(
+        'zip-mode-target',
+      );
+      String? extracted;
+      try {
+        await File(
+          p.join(sourceDir.path, 'Opentoolfile.json'),
+        ).writeAsString('{}');
+        final helper = File(
+          p.join(sourceDir.path, 'node_modules', 'node-pty', 'spawn-helper'),
+        );
+        await helper.parent.create(recursive: true);
+        await helper.writeAsString('helper');
+        await Process.run('chmod', ['0755', helper.path]);
+
+        final zipPath = p.join(targetDir.path, 'server.ots');
+        await ZipUtil.zipDirectory(sourceDir.path, zipPath);
+
+        final bytes = await File(zipPath).readAsBytes();
+        final decoder = ZipDecoder();
+        final archive = decoder.decodeBytes(bytes);
+        try {
+          expect(
+            decoder.directory.fileHeaders.map(
+              (header) => header.versionMadeBy >> 8,
+            ),
+            everyElement(3),
+          );
+          expect(
+            archive
+                .findFile('node_modules/node-pty/spawn-helper')!
+                .unixPermissions,
+            0x1ed,
+          );
+        } finally {
+          await archive.clear();
+        }
+
+        extracted = await ZipUtil.unzipToTemp(zipPath);
+        final extractedHelper = File(
+          p.join(extracted, 'node_modules', 'node-pty', 'spawn-helper'),
+        );
+        expect((await extractedHelper.stat()).mode & 0x1ff, 0x1ed);
+      } finally {
+        if (extracted != null) {
+          await Directory(extracted).delete(recursive: true);
+        }
+        await sourceDir.delete(recursive: true);
+        await targetDir.delete(recursive: true);
+      }
+    },
+    skip: Platform.isWindows,
+  );
+
+  test('extraction strips special permission bits', () async {
+    final temp = await Directory.systemTemp.createTemp('zip-safe-mode');
+    String? extracted;
+    try {
+      final executable = ArchiveFile.string('bin/tool', 'tool')
+        ..mode = 0x8000 | 0x9ed;
+      final archive = Archive()
+        ..addFile(ArchiveFile.string('Opentoolfile.json', '{}'))
+        ..addFile(executable);
+      final archivePath = p.join(temp.path, 'safe-mode.ots');
+      await File(archivePath).writeAsBytes(_encodeUnixArchive(archive));
+
+      extracted = await ZipUtil.unzipToTemp(archivePath);
+
+      expect(
+        (await File(p.join(extracted, 'bin', 'tool')).stat()).mode & 0xfff,
+        0x1ed,
+      );
+    } finally {
+      if (extracted != null) {
+        await Directory(extracted).delete(recursive: true);
+      }
+      await temp.delete(recursive: true);
+    }
+  }, skip: Platform.isWindows);
+
+  test(
+    'extraction ignores permissions from non-Unix ZIP entries',
+    () async {
+      final temp = await Directory.systemTemp.createTemp('zip-fat-mode');
+      String? extracted;
+      try {
+        final executable = ArchiveFile.string('bin/tool', 'tool')
+          ..mode = 0x8000 | 0x1ed;
+        final archive = Archive()
+          ..addFile(ArchiveFile.string('Opentoolfile.json', '{}'))
+          ..addFile(executable);
+        final archivePath = p.join(temp.path, 'fat-mode.ots');
+        await File(archivePath).writeAsBytes(ZipEncoder().encode(archive));
+
+        extracted = await ZipUtil.unzipToTemp(archivePath);
+
+        expect(
+          (await File(p.join(extracted, 'bin', 'tool')).stat()).mode & 0x49,
+          0,
+        );
+      } finally {
+        if (extracted != null) {
+          await Directory(extracted).delete(recursive: true);
+        }
+        await temp.delete(recursive: true);
+      }
+    },
+    skip: Platform.isWindows,
+  );
+
   test('inspect rejects paths that escape the extraction directory', () async {
     final temp = await Directory.systemTemp.createTemp('unsafe-zip');
     final archive = Archive()

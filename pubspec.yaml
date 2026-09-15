@@ -17,6 +17,7 @@ dependencies:
   opentool_dart: ^2.0.1
   logging: ^1.2.0
   archive: ^4.0.7
+  posix: ^6.5.2
   uuid: ^4.5.1
   unique_id_dart: ^1.0.0
 
