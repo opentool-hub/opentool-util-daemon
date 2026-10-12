@@ -804,7 +804,12 @@ class ToolService {
   }
 
   Future<OpenTool?> load(String toolId) async {
-    logger.log(LogModule.tool, "load.input", detail: "toolId: $toolId");
+    logger.log(
+      LogModule.tool,
+      "load.input",
+      detail: "toolId: $toolId",
+      level: Level.FINE,
+    );
     OpenTool? tool = await _checkThenRun(toolId, (client) async {
       OpenTool? tool = await client.load();
       return tool;
@@ -813,6 +818,7 @@ class ToolService {
       LogModule.tool,
       "load.result",
       detail: "toolId: $toolId, loaded: ${tool != null}",
+      level: tool == null ? Level.WARNING : Level.FINE,
     );
     return tool;
   }
@@ -840,10 +846,20 @@ class ToolService {
     String toolId,
     Future<T> Function(OpenToolClient client) onRun,
   ) async {
-    logger.log(LogModule.tool, "check.input", detail: "toolId: $toolId");
+    logger.log(
+      LogModule.tool,
+      "check.input",
+      detail: "toolId: $toolId",
+      level: Level.FINE,
+    );
     ToolDao? toolDao = await _cacheToolStorage.get(toolId);
     if (toolDao == null) {
-      logger.log(LogModule.tool, "check.missing", detail: "toolId: $toolId");
+      logger.log(
+        LogModule.tool,
+        "check.missing",
+        detail: "toolId: $toolId",
+        level: Level.WARNING,
+      );
       throw ToolNotFoundException(toolId);
     }
     OpenToolClient client = _clients[toolId] ?? _registerClient(toolDao);
@@ -854,6 +870,7 @@ class ToolService {
         LogModule.tool,
         "check.error",
         detail: "toolId: $toolId, error: $error\n$stackTrace",
+        level: Level.WARNING,
       );
       rethrow;
     }

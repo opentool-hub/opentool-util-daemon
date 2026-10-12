@@ -59,7 +59,12 @@ class ServerService {
   }
 
   Future<ServerModel> get(String serverId) async {
-    logger.log(LogModule.server, 'get.input', detail: 'serverId: $serverId');
+    logger.log(
+      LogModule.server,
+      'get.input',
+      detail: 'serverId: $serverId',
+      level: Level.FINE,
+    );
     final dao = await _servers.get(serverId);
     if (dao == null) throw ServerNotFoundException(serverId);
     final inUse =

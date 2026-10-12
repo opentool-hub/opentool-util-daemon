@@ -20,7 +20,7 @@ dart compile exe bin/opentool_daemon.dart -o build/opentoold  # macOS / Linux
 dart run bin/opentool_daemon.dart --config bin/config.json
 ```
 
-The daemon will persist metadata under `~/.opentool` (servers, tools, config) and write logs to `log/daemon.log`.
+The daemon will persist metadata under `~/.opentool` (servers, tools, config) and write logs to `log/daemon.log` (or `LOG_DIR/daemon.log`). The log rotates at 10 MiB and retains three backups (`daemon.log.1` through `.3`). Routine successful reads are logged at `FINE`; the default `INFO` level keeps lifecycle events and warnings without polling noise.
 
 ### Configuration
 

@@ -10,6 +10,7 @@ import 'package:opentool_daemon/src/storage/dao.dart';
 import 'package:opentool_daemon/src/utils/port_reservation_allocator.dart';
 import 'package:opentool_daemon/src/utils/zip_util.dart';
 import 'package:opentool_dart/opentool_client.dart';
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 import '../test_doubles.dart';
 
@@ -67,6 +68,24 @@ void main() {
       expect(
         () => service.get('missing'),
         throwsA(isA<ToolNotFoundException>()),
+      );
+    });
+
+    test('load logs a warning when the client returns no tool', () async {
+      final client = _ControlledLifecycleClient();
+      client.loadResult.complete(null);
+      service = ToolService(hiveToolStorage, clientFactory: (_) => client);
+      final records = <LogRecord>[];
+      final subscription = Logger.root.onRecord.listen(records.add);
+      addTearDown(subscription.cancel);
+
+      expect(await service.load('tool-1'), isNull);
+      expect(
+        records
+            .where((record) => record.message.contains('load.result'))
+            .single
+            .level,
+        Level.WARNING,
       );
     });
 

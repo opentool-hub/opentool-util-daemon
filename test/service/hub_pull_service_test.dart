@@ -16,6 +16,17 @@ import 'package:test/test.dart';
 import '../test_doubles.dart';
 
 void main() {
+  test('accepts AgentOS Full as a Hub pull client', () {
+    final request = HubPullRequest.validate(
+      registry: 'https://www.opentool-hub.com',
+      namespace: 'litevar',
+      name: 'demo',
+      version: '1.0.0',
+      client: 'agentos',
+    );
+    expect(request.client, 'agentos');
+  });
+
   test('maps deprecated Hub versions to a stable pull error', () async {
     final httpServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final registry = 'http://${httpServer.address.host}:${httpServer.port}';

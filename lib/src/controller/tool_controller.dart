@@ -611,7 +611,12 @@ class ToolController {
 
   /// GET /tools/<toolId>/load
   Future<Response> loadTool(Request request, String toolId) async {
-    logger.log(LogModule.http, "loadTool.input", detail: "toolId: $toolId");
+    logger.log(
+      LogModule.http,
+      "loadTool.input",
+      detail: "toolId: $toolId",
+      level: Level.FINE,
+    );
     OpenTool? openTool = await toolService.load(toolId);
     if (openTool == null) {
       return daemonErrorResponse(

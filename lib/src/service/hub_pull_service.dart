@@ -51,6 +51,7 @@ class HubPullRequest {
     }
     final normalizedClient = (client ?? 'unknown').trim().toLowerCase();
     if (!const {
+      'agentos',
       'desktop',
       'embedded',
       'server',
