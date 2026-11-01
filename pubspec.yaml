@@ -1,10 +1,10 @@
 name: opentool_daemon
 description: A HTTP Daemon Server to manage native OpenTool Servers.
-version: 0.5.2
+version: 0.5.3
 repository: https://github.com/opentool-hub/opentool-util-daemon
 
 environment:
-  sdk: ">=3.8.0 <4.0.0"
+  sdk: ">=3.13.0 <4.0.0"
 
 dependencies:
   path: ^1.9.1
@@ -14,7 +14,7 @@ dependencies:
   shelf_router: ^1.1.4
   dio: ^5.9.0
   crypto: ^3.0.6
-  opentool_dart: ^2.0.1
+  opentool_dart: ^3.0.0
   logging: ^1.2.0
   archive: ^4.0.7
   posix: ^6.5.2

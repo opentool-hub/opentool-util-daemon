@@ -1,3 +1,8 @@
+## 0.5.3
+
+- Upgrade the OpenTool Dart SDK to 3.0.0 for complete JSON Schema support
+- Require Dart SDK 3.13 or later
+
 ## 0.5.2
 
 - Return Build SSE immediately, stream command output while it is produced, and
