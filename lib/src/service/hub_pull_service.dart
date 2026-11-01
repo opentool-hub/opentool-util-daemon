@@ -199,7 +199,7 @@ class HubPullService {
             existing.artifactId == resolved.artifact.id) {
           return existing;
         }
-        return serverService.refreshHubSourceMetadata(
+        return await serverService.refreshHubSourceMetadata(
           existing.id,
           _metadata(request, platform, resolved),
         );
